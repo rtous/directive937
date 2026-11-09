@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Directive 937</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="console">
+    <header class="topbar panel">
+      <div class="brand">
+        <span class="brand-mark">◤</span>
+        <span>DIRECTIVE 937</span>
+        <span class="dim">// TACTICAL CONTROL DECK</span>
+      </div>
+      <div class="topbar-right">
+        <span class="dim">SHIP TIME</span> <span id="ship-clock">--:--:--</span>
+        <button class="status-pill audio-btn" id="audio-btn" title="Toggle sound">AUDIO OFF</button>
+        <span class="status-pill agent-pill" id="agent-pill" title="Connection to your local AI agent">AGENT: OFFLINE</span>
+        <a href="agent.html" target="_blank" class="status-pill setup-btn" title="Connect your AI agent">⚙ AGENT SETUP</a>
+      </div>
+    </header>
+
+    <aside class="col left">
+      <section class="panel">
+        <h2>SQUAD <span class="dim">CLICK = CAM</span></h2>
+        <ul class="roster" id="roster"></ul>
+      </section>
+      <section class="panel map-panel">
+        <h2>TACTICAL MAP <span id="map-coords" class="dim">--</span></h2>
+        <div class="map-crt">
+          <canvas id="map" width="440" height="330"></canvas>
+          <div class="crt-scanlines"></div>
+          <div class="crt-vignette"></div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="col center panel">
+      <h2 id="cam-title">HELMET CAM // UNIT 01 <span class="rec">● REC</span></h2>
+      <div class="crt-bezel">
+        <div class="crt" id="crt">
+          <canvas id="feed" width="320" height="240"></canvas>
+          <div class="crt-scanlines"></div>
+          <div class="crt-roll"></div>
+          <div class="crt-vignette"></div>
+          <div class="crt-osd">
+            <div class="osd-top">
+              <span id="osd-channel">CH-01</span>
+              <span id="osd-sos" title="Distress signal from the survivor">SOS ▯▯▯▯▯ --</span>
+            </div>
+            <div class="osd-msg" id="osd-msg"></div>
+            <div class="mission-end" id="mission-end" hidden>
+              <b id="mission-end-title"></b>
+              <span id="mission-end-text"></span>
+              <button type="button" id="restart-btn">RESTART MISSION</button>
+            </div>
+            <div class="osd-bottom">
+              <span class="osd-name" id="soldier-name">SGT. R. FROST</span>
+              <span class="osd-time">MISSION TIME <span id="mission-time">00:00:00</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="col right">
+      <section class="panel">
+        <h2 id="vitals-title">BIOMONITOR // UNIT 01</h2>
+        <div class="crt-bezel small">
+          <div class="crt small" id="vitals-crt">
+            <canvas id="ecg" width="240" height="90"></canvas>
+            <canvas id="vitals-noise" width="120" height="90"></canvas>
+            <div class="crt-scanlines"></div>
+            <div class="crt-roll"></div>
+            <div class="crt-vignette"></div>
+            <div class="vitals-osd">
+              <div class="vitals-head">
+                <span id="vitals-name">SGT. R. FROST</span>
+                <span class="ecg-label">ECG II</span>
+              </div>
+              <div class="vitals-grid">
+                <div><span>HR</span><b id="bpm">--</b><small>BPM</small></div>
+                <div><span>SPO2</span><b id="o2">--</b><small>%</small></div>
+                <div><span>NIBP</span><b id="bp">--/--</b><small>MMHG</small></div>
+                <div><span>RESP</span><b id="resp">--</b><small>RPM</small></div>
+                <div><span>HEALTH</span><b id="hp">--</b><small>%</small></div>
+                <div><span>STATUS</span><b id="vstatus">--</b><small>&nbsp;</small></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="panel grow comms">
+        <h2>COMMS // SQUAD</h2>
+        <ol class="log" id="log"></ol>
+        <form class="comms-form" id="comms-form" autocomplete="off">
+          <span class="prompt-mark">&gt;</span>
+          <input id="comms-input" type="text" maxlength="300" placeholder="TRANSMIT (NAME A UNIT)..." spellcheck="false">
+          <button type="submit">SEND</button>
+        </form>
+      </section>
+    </aside>
+
+    <footer class="bottombar panel">
+      <div class="ticker"><span id="ticker"></span></div>
+    </footer>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- for the Mixamo soldier model (characters/*.fbx) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+  <script src="effects.js"></script>
+  <script src="behavior.js"></script>
+  <script src="hostiles.js"></script>
+  <script src="mission.js"></script>
+  <script src="walls.js"></script>
+  <script src="world.js"></script>
+  <script src="audio.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

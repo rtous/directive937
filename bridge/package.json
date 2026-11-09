@@ -1,0 +1,18 @@
+{
+  "name": "directive937-bridge",
+  "version": "0.1.0",
+  "description": "Connects the Directive 937 game (browser) to a local AI agent via MCP.",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "directive937-bridge": "index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}

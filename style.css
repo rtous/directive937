@@ -110,8 +110,8 @@ h2 {
 .roster { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
 .roster li {
   display: grid;
-  grid-template-columns: 22px 1fr auto auto auto;
-  gap: 0 8px;
+  grid-template-columns: 14px 22px 1fr auto auto;
+  gap: 4px 8px;
   align-items: center;
   padding: 4px 6px;
   border: 1px solid transparent;
@@ -125,7 +125,7 @@ h2 {
 .roster li.active { border-color: var(--seegson); background: var(--terminal); }
 .roster li.warn em { color: var(--acid); animation: blink 1s steps(1) infinite; }
 /* console buttons: HOLD / SLOW / RUN, lit while active */
-.roster .ctl { display: inline-flex; gap: 3px; }
+.roster .ctl { display: inline-flex; gap: 3px; grid-column: 3 / -1; grid-row: 2; } /* on a line of its own under the name */
 .roster .ctl button {
   background: transparent;
   border: 1px solid var(--line);
@@ -140,6 +140,64 @@ h2 {
 .roster .ctl button.on:hover { filter: brightness(1.15); }
 .roster .ctl button.on { background: var(--seegson); border-color: var(--seegson); color: var(--deep); }
 .roster .ctl button:disabled { opacity: 0.3; cursor: default; }
+/* who the soldier follows */
+.roster .ctl select {
+  background: var(--deep);
+  border: 1px solid var(--line);
+  color: var(--synthetic);
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 0 2px;
+  width: 92px; /* same width in every row */
+  cursor: pointer;
+}
+.roster .ctl select:hover:not(:disabled) { border-color: var(--seegson); color: var(--seegson); }
+.roster .ctl select:disabled { opacity: 0.3; cursor: default; }
+/* selection checkboxes: one per soldier and one for the whole squad (in the panel title) */
+.roster input[type="checkbox"], .sel-all input {
+  appearance: none;
+  width: 11px; height: 11px;
+  margin: 0;
+  border: 1px solid var(--seegson);
+  background: transparent;
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+}
+.roster input[type="checkbox"]:checked, .sel-all input:checked { background: var(--seegson); box-shadow: 0 0 6px var(--seegson); }
+.sel-all input:indeterminate::after { content: ""; width: 5px; height: 1px; background: var(--seegson); }
+.roster input[type="checkbox"]:disabled { opacity: 0.3; cursor: default; }
+.sel-all { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* orders for every selected soldier at once, plus a direction pad */
+.group-orders { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 10px; }
+.go-head { color: var(--synthetic); letter-spacing: 0.14em; margin-bottom: 6px; }
+.go-head b { color: var(--seegson); font-weight: normal; }
+.go-body { display: flex; gap: 10px; align-items: center; }
+.go-buttons { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.group-orders button {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--hypersleep);
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 3px 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.group-orders button:hover:not(:disabled) { border-color: var(--seegson); color: var(--seegson); }
+.group-orders button:active:not(:disabled) { background: var(--seegson); color: var(--deep); }
+.group-orders button:disabled { opacity: 0.3; cursor: default; }
+.dpad { display: grid; grid-template-columns: repeat(3, 22px); grid-template-rows: repeat(3, 20px); gap: 2px; }
+.dpad button { padding: 0; font-size: 10px; color: var(--seegson); }
+.dpad .n { grid-area: 1 / 2; }
+.dpad .w { grid-area: 2 / 1; }
+.dpad .c { grid-area: 2 / 2; font-size: 8px; }
+.dpad .e { grid-area: 2 / 3; }
+.dpad .s { grid-area: 3 / 2; }
+
 /* distress-signal strength: five small rising bars */
 .roster .sos { display: inline-flex; align-items: flex-end; gap: 1px; height: 10px; opacity: 0.85; }
 .roster .sos i { width: 2px; background: var(--line); }

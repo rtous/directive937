@@ -35,13 +35,14 @@ server.registerTool("send_order", {
   description: "Give soldiers an order. Soldiers act on their own between orders (default: stay together, patrol, " +
     "watch all angles, engage and pursue hostiles); instincts (point-blank fire, panic flight) override orders.\n" +
     "TASKS: patrol [room] | goto <room | x y> | north/south/east/west (as far as possible) | hold | " +
+    "alert (stop, look all around 5 s, carry on) | inspect [room] (check it spot by spot, then hold) | " +
     "retreat [room] | follow <unit> | continue.\n" +
     "SQUAD SHAPE: together (regroup behind the lowest-numbered unit) | split (ALPHA 1+2, BRAVO 3+4) | spread.\n" +
     "STANDING ORDERS (kept until changed): pace slow|normal|fast | fire free|hold | contact engage|hold|retreat | " +
     "pursue on|off | watch auto|front|rear|<direction, diagonals too: north-east>|center (of the room)|<room>|<x y> (lapses to auto a few seconds after moving) | reset.",
   inputSchema: {
     unit: UNIT,
-    action: z.enum(["patrol", "goto", "north", "south", "east", "west", "hold", "retreat", "follow", "continue",
+    action: z.enum(["patrol", "goto", "north", "south", "east", "west", "hold", "alert", "inspect", "retreat", "follow", "continue",
       "together", "split", "spread", "pace", "fire", "contact", "pursue", "watch", "reset"]),
     target: z.string().optional().describe("The argument: a room (MEDLAB, AIRLOCK...), a position \"x y\", a unit, or a value like slow / hold / off"),
   },

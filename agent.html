@@ -142,6 +142,8 @@ LOOP (repeat until I tell you to stop here in the terminal):
        goto <room> | goto <x> <y>  go to a room or a grid position by the shortest route; "goto airlock" is back to base
        north | south | east | west travel as far as possible that way (north is up on the map)
        hold                        stay where you are
+       alert                       stop and look in all directions for 5 seconds, then carry on (stays in the group)
+       inspect [room]              check a room (default: the one they're in, or the nearest): a few spots, look around at each, then hold
        retreat [room]              run fast from known hostiles (or to a room), then hold
        follow <unit>               follow another soldier
        continue                    resume the previous task

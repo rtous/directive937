@@ -1,7 +1,7 @@
 "use strict";
 
 // CRT / radio static, gunfire, radio bursts and suspense music, generated with the Web Audio API (no sound files).
-// Browsers only allow audio after a user gesture, so start() is called on first click/key.
+// Browsers only allow audio after a user gesture: start() is called on load and again on the first click or key press.
 function createStaticAudio() {
   let ctx = null;
   let master, noiseGain, crackleGain, humGain;

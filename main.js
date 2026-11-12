@@ -34,32 +34,24 @@ const rowGain = new Float32Array(H);
 const crt = $("crt");
 const osdMsg = $("osd-msg");
 
-// Static sound. Browsers block audio until the user interacts with the page.
+// Static sound, on by default. Browsers hold audio back until the user first interacts with the page, so it is
+// started now (plays straight away where the browser allows it) and again on the first click or key press.
 const sound = createStaticAudio();
 const audioBtn = $("audio-btn");
-let audioStarted = false;
 function refreshAudioBtn() {
-  // browsers keep audio off until the first click or key press, so it shows OFF until then
-  const on = audioStarted && sound.enabled;
-  audioBtn.textContent = on ? "AUDIO ON" : "AUDIO OFF";
-  audioBtn.classList.toggle("on", on);
+  audioBtn.textContent = sound.enabled ? "AUDIO ON" : "AUDIO OFF";
+  audioBtn.classList.toggle("on", sound.enabled);
 }
-function startAudio() {
-  if (audioStarted) return;
-  audioStarted = true;
-  sound.start();
-  refreshAudioBtn();
-}
+sound.start();
+refreshAudioBtn();
 audioBtn.addEventListener("click", (e) => {
   e.stopPropagation();
-  if (!audioStarted) startAudio();
-  else { sound.toggle(); refreshAudioBtn(); }
+  sound.start(); // in case this is the first gesture
+  sound.toggle();
+  refreshAudioBtn();
 });
-// Any first click or key press elsewhere on the page also turns sound on. Clicks on the audio button are left to
-// its own handler: otherwise that first press would start the audio and the click would toggle it straight off.
-function firstGesture(e) {
-  if (e.target instanceof Node && audioBtn.contains(e.target)) return;
-  startAudio();
+function firstGesture() {
+  sound.start(); // resumes the audio the browser held back
   window.removeEventListener("pointerdown", firstGesture);
   window.removeEventListener("keydown", firstGesture);
 }
@@ -448,7 +440,8 @@ function renderMap(now) {
 }
 
 // ---------- Comms log ----------
-// Only real messages: CONTROL, the soldiers and MOTHER (voiced by the AI agent) and game events
+// Only what is said on the radio: CONTROL (the player), the soldiers and MOTHER (voiced by the AI agent).
+// Game events and order results go to the agent, not here; with no agent linked, radioFallback calls them in.
 const logEl = $("log");
 
 // kind: "ambient" | "alert" | "player" | "soldier" | "mother" | "system"
@@ -525,6 +518,43 @@ function isUrgent(unit, text) {
   return performance.now() - (hostileEventAt.get(unit) ?? -1e9) < 10000 || ALARM_WORDS.test(text);
 }
 
+// With no agent linked: game events as short radio calls, from the soldier or from MOTHER (the ship computer).
+// Events are written for the agent ("Unit 2 (VASQUEZ) CONTACT: ..."); this turns them into what was said.
+const RADIO_CALLS = [
+  [/^CONTACT: (.*)/, "Contact! $1"],
+  [/^HOSTILE CHARGING AT \w+! (.*)/, "It's coming right at me! $1"],
+  [/^HOSTILE DROPPED FROM A CEILING VENT in (.*)/, "One just dropped out of the ceiling vent! $1"],
+  [/^lost sight of the hostile, (.*)/, "Lost sight of it, $1"],
+  [/^MOTION TRACKER: (.*)/, "Motion tracker: $1"],
+  [/^INSTINCT: overwhelmed .*/, "Too many of them! I'm getting out of here!"],
+  [/^INSTINCT: hostile (.*), opening fire despite hold-fire\./, "It's right on me ($1), firing!"],
+  [/^broke away from the hostiles and is holding in (.*)\./, "I'm clear. Holding in $1."],
+  [/^fell back to (.*)\. Holding\./, "Fell back to $1. Holding."],
+  [/^killed a hostile in (.*)\./, "Hostile down in $1."],
+  [/^badly wounded, health (\d+)\./, "I'm hit bad! Health $1."],
+  [/^arrived at (.*)\. Holding\./, "In position at $1. Holding."],
+  [/^reached the furthest point (\w+) it can get to, in (.*)\. Holding\./, "Can't go any further $1. Holding in $2."],
+  [/^has no route to (.*)\. Holding\./, "No way through to $1. Holding."],
+  [/^has nowhere to retreat to\. Holding\./, "Nowhere to fall back to. Holding."],
+  [/^all-round check done, (.*)\. Back to: (.*)\./, "All around clear: $1. Back to $2."],
+  [/^finished inspecting (.*): (.*)\. Holding\./, "$1 checked: $2. Holding."],
+  [/^found the survivor in (.*?)!.*/, "I've found the survivor in $1! They're with me. Heading for the AIRLOCK."],
+];
+function radioFallback(soldier, text) {
+  const say = (t, who, kind, unit) => {
+    addLog(t, kind, who);
+    sound.radio({ kind, urgent: kind === "soldier" && isUrgent(unit, t) });
+  };
+  if (/^MISSION (COMPLETE|FAILED)/.test(text)) return; // shown over the camera feed
+  if (/ entering .* while /.test(text)) return;        // too frequent to call in
+  if (/No life signs\.$/.test(text) || !soldier || soldier.dead) return say(text, "MOTHER", "mother");
+  if (/^The survivor is now following/.test(text)) return say("The survivor's with me now.", soldier.callsign, "soldier", soldier.id);
+  if (/^The survivor was taken/.test(text)) return say(text, "MOTHER", "mother");
+  const body = text.replace(/^Unit \d+ \([^)]*\) /, "");
+  const rule = RADIO_CALLS.find(([re]) => re.test(body));
+  say(rule ? body.replace(rule[0], rule[1]) : body, soldier.callsign, "soldier", soldier.id);
+}
+
 // Who a radio message is from: a unit (number or name) or the ship computer
 function speakerLabel(speaker) {
   const sp = String(speaker || "").trim();
@@ -537,13 +567,11 @@ function speakerLabel(speaker) {
 function connectBridge() {
   stream = new EventSource(`${BRIDGE_URL}/game/stream`);
   stream.onopen = () => {
-    if (!bridgeOpen) addLog("AGENT LINK ESTABLISHED", "system");
     bridgeOpen = true;
     setAgentPill();
     sendBridge({ type: "status", status: fullStatus() });
   };
   stream.onerror = () => {
-    if (bridgeOpen) addLog("AGENT LINK LOST", "system");
     bridgeOpen = false;
     agentListening = false;
     setAgentPill();
@@ -567,9 +595,6 @@ function connectBridge() {
 
     } else if (msg.type === "order" && world) {
       const results = world.order(msg.unit, msg.action, msg.target);
-      for (const r of results) {
-        if (r.ok) addLog(`ORDER ${r.name}: ${r.detail}`, "system");
-      }
       sendBridge({ type: "order_result", id: msg.id, results, status: fullStatus() });
     }
   };
@@ -588,8 +613,9 @@ if (world) {
   };
   world.onEvent = (soldier, text) => {
     if (soldier && HOSTILE_EVENT.test(text)) hostileEventAt.set(soldier.id, performance.now());
-    addLog(text, "system");
-    sendBridge({ type: "event", unit: soldier ? soldier.id : null, text, status: fullStatus() });
+    // the agent voices events; with no agent linked the soldiers (or MOTHER) call them in themselves
+    if (bridgeOpen) sendBridge({ type: "event", unit: soldier ? soldier.id : null, text, status: fullStatus() });
+    else radioFallback(soldier, text);
   };
   // Win or lose: the world freezes and the result shows over the camera feed
   world.onMissionEnd = ({ win, reason }) => {
@@ -613,6 +639,7 @@ $("comms-form").addEventListener("submit", (e) => {
   if (!text) return;
   input.value = "";
   addLog(text, "player", "CONTROL");
+  sound.radio({ kind: "player" });
   if (!bridgeOpen) {
     addLog("NO AGENT LINK. OPEN AGENT SETUP (TOP BAR) TO CONNECT YOUR AI AGENT.", "alert");
     return;
@@ -624,18 +651,26 @@ $("comms-form").addEventListener("submit", (e) => {
 const rosterEl = $("roster");
 const rosterItems = SQUAD.map((u, i) => {
   const li = document.createElement("li");
-  li.innerHTML = `<span>${pad(u.id)}</span><b></b>` +
+  li.innerHTML = `<input type="checkbox" class="pick" title="Select for group orders"><span>${pad(u.id)}</span><b></b>` +
     `<span class="ctl"><button type="button" data-act="hold" title="Stop and look around (press again to carry on)">HOLD</button>` +
     `<button type="button" data-act="slow" title="Move slowly and carefully">SLOW</button>` +
-    `<button type="button" data-act="run" title="Run">RUN</button></span>` +
+    `<button type="button" data-act="run" title="Run">RUN</button>` +
+    `<select class="fol" title="Who this soldier follows (NONE: acts on their own)"><option value="">FOL NONE</option>` +
+    SQUAD.map((o, k) => (k === i ? "" : `<option value="${k}">FOL ${o.callsign}</option>`)).join("") + `</select></span>` +
     `<span class="sos" title="Distress signal strength"><i></i><i></i><i></i><i></i><i></i></span><em></em>`;
   li.style.setProperty("--unit", u.color);
   li.querySelector("b").textContent = u.name;
   li.title = "Show this soldier's helmet camera";
   li.addEventListener("click", () => selectUnit(i));
+  const pick = li.querySelector(".pick");
+  pick.addEventListener("click", (e) => e.stopPropagation()); // ticking a box doesn't switch the camera
+  pick.addEventListener("change", updateSelection);
+  const fol = li.querySelector(".fol");
+  fol.addEventListener("click", (e) => e.stopPropagation()); // choosing a leader doesn't switch the camera
+  fol.addEventListener("change", () => setLeader(i, fol.value));
   li.querySelectorAll(".ctl button").forEach((btn) => btn.addEventListener("click", (e) => {
     e.stopPropagation(); // a button press doesn't switch the camera
-    quickOrder(i, btn.dataset.act);
+    groupOrder(btn.dataset.act, [i]);
   }));
   rosterEl.appendChild(li);
   return li;
@@ -685,44 +720,155 @@ function updateRoster() {
     li.querySelector("em").textContent = i === selected ? `CAM ${order}` : order;
     // the buttons show the soldier's actual state, whoever gave the order (these buttons or the agent)
     const s = world && world.soldiers[i];
-    const btn = (act) => li.querySelector(`.ctl [data-act="${act}"]`);
-    btn("hold").classList.toggle("on", !!s && !s.dead && s.task.kind === "hold");
-    btn("slow").classList.toggle("on", !!s && !s.dead && s.orders.pace === "slow");
-    btn("run").classList.toggle("on", !!s && !s.dead && s.orders.pace === "fast");
-    li.querySelectorAll(".ctl button").forEach((b) => (b.disabled = !s || s.dead || world.mission.over));
+    const mode = s && !s.dead ? modeOf(s) : null;
+    li.querySelectorAll(".ctl button").forEach((b) => {
+      b.classList.toggle("on", b.dataset.act === mode);
+      b.disabled = !s || s.dead || world.mission.over;
+    });
+    // who they follow, kept in step with the game (orders from the agent change it too); not while it's being picked
+    const fol = li.querySelector(".fol");
+    if (document.activeElement !== fol) fol.value = s && !s.dead && s.leader ? String(world.soldiers.indexOf(s.leader)) : "";
+    fol.disabled = !s || s.dead || world.mission.over;
+    for (const o of fol.options) if (o.value) o.disabled = !world || world.soldiers[+o.value].dead;
+    const pick = li.querySelector(".pick");
+    if (s && s.dead && !pick.disabled) { pick.checked = false; pick.disabled = true; }
+  });
+  updateSelection();
+}
+
+// Who a soldier follows, from the selector in their row. "" = nobody: they stop and hold until given an order.
+// A follower goes wherever their leader is, however far (running to catch up), unless there's no way through.
+function setLeader(i, leader) {
+  if (!world || world.mission.over || world.soldiers[i].dead) return;
+  const s = world.soldiers[i];
+  heldFrom.delete(s); // a HOLD let go later doesn't send them back to an old leader
+  const L = leader === "" ? null : SQUAD[+leader];
+  const results = L ? world.order(String(s.id), "follow", String(L.id)) : world.order(String(s.id), "hold");
+  const what = L ? `follow ${L.callsign}` : "stop following, hold position";
+  if (!results.every((r) => r.ok)) { // e.g. that soldier is already following this one
+    addLog(`${s.callsign}: ${results.map((r) => r.detail).join(" ")}`, "alert");
+    updateRoster();
+    return;
+  }
+  addLog(`${s.callsign}: ${what.toUpperCase()}`, "player", "CONTROL");
+  sound.radio({ kind: "player" });
+  updateRoster();
+  sendBridge({
+    type: "event", unit: s.id, status: fullStatus(),
+    text: `CONTROL used the console: ${s.callsign} ${what} (${results.map((r) => r.detail).join(" ")}).`,
   });
 }
 
-// Console buttons: quick orders straight to one soldier, reported to the agent so it knows
-const heldFrom = new Map(); // soldier index -> the leader they were following before HOLD (to rejoin after)
-function quickOrder(i, act) {
-  if (!world || world.mission.over) return;
-  const s = world.soldiers[i];
-  if (s.dead) return;
-  const id = String(SQUAD[i].id);
-  let what, results;
-  if (act === "hold") {
-    if (s.task.kind === "hold") { // released: carry on, or fall back in behind the soldier they were following
-      const leader = heldFrom.get(i);
-      heldFrom.delete(i);
-      what = "carry on";
-      results = leader && !leader.dead ? world.order(id, "follow", String(leader.id)) : world.order(id, "continue");
-    } else {
-      heldFrom.set(i, s.leader || null);
-      what = "hold and look around";
-      results = [...world.order(id, "hold"), ...world.order(id, "watch", "auto")];
-    }
-  } else { // SLOW / RUN: only one at a time; pressing the lit one goes back to normal pace
-    const want = act === "slow" ? "slow" : "fast";
-    const pace = s.orders.pace === want ? "normal" : want;
-    what = `pace ${pace}`;
-    results = world.order(id, "pace", pace);
+// ---------- HOLD / SLOW / RUN ----------
+// One at a time: holding, moving slow or running. None lit = moving at normal pace (the default).
+// Pressing the lit one goes back to that default; HOLD let go = carry on, or rejoin the soldier they followed.
+// HOLD lights only on a soldier told to hold: their followers stop behind them too, but are still "following".
+function modeOf(s) {
+  if (s.task.kind === "hold") return "hold";
+  return s.orders.pace === "slow" ? "slow" : s.orders.pace === "fast" ? "run" : "normal";
+}
+const heldFrom = new Map(); // soldier -> the leader they were following before HOLD (to rejoin after)
+
+// Puts the soldiers in one mode ("hold" | "slow" | "run" | "normal"). Returns [what CONTROL said, results].
+function setMode(units, mode) {
+  const ids = (list) => list.map((s) => String(s.id)).join(",");
+  const results = [];
+  if (mode === "hold") {
+    const free = units.filter((s) => modeOf(s) !== "hold");
+    free.forEach((s) => heldFrom.set(s, s.leader || null));
+    if (free.length) results.push(...world.order(ids(free), "hold"), ...world.order(ids(free), "watch", "auto"));
+    results.push(...world.order(ids(units), "pace", "normal"));
+    return ["hold and look around", results];
   }
-  addLog(`${SQUAD[i].callsign}: ${what.toUpperCase()}`, "player", "CONTROL");
+  // let go of HOLD: whoever holds carries on, or falls back in behind their leader
+  const held = units.filter((s) => modeOf(s) === "hold");
+  const rest = [];
+  held.forEach((s) => {
+    const leader = heldFrom.get(s);
+    heldFrom.delete(s);
+    if (leader && !leader.dead && !held.includes(leader)) results.push(...world.order(String(s.id), "follow", String(leader.id)));
+    else rest.push(s);
+  });
+  if (rest.length) results.push(...world.order(ids(rest), "continue"));
+  results.push(...world.order(ids(units), "pace", mode === "run" ? "fast" : mode));
+  const what = { slow: "move slow", run: "run", normal: held.length ? "carry on" : "normal pace" }[mode];
+  return [what, results];
+}
+
+// ---------- Group orders ----------
+// The ticked soldiers get the orders from the buttons and the direction pad under the squad list
+// (the buttons in each row do the same for that soldier alone).
+// Same orders the agent gives; each one shows in the comms log and is reported to the agent.
+const selAll = $("sel-all");
+const picks = rosterItems.map((li) => li.querySelector(".pick"));
+const pickedIdx = () => picks.map((p, i) => (p.checked && !p.disabled ? i : -1)).filter((i) => i >= 0);
+// who the buttons order: the ticked soldiers, or with none ticked the soldier on the monitor
+const targetIdx = () => {
+  const idx = pickedIdx();
+  if (idx.length) return idx;
+  return world && !world.soldiers[selected].dead ? [selected] : [];
+};
+const MODES = ["hold", "slow", "run"];
+// the mode every one of these soldiers is in, or null if they differ
+const sharedMode = (idx) => {
+  const modes = new Set(idx.map((i) => modeOf(world.soldiers[i])));
+  return modes.size === 1 ? [...modes][0] : null;
+};
+
+function updateSelection() {
+  const live = picks.filter((p) => !p.disabled);
+  const n = pickedIdx().length;
+  selAll.checked = live.length > 0 && n === live.length;
+  selAll.indeterminate = n > 0 && n < live.length;
+  const idx = targetIdx();
+  $("sel-count").textContent = n === 0 ? (idx.length ? `${SQUAD[selected].callsign} (ON CAMERA)` : "NOBODY")
+    : n === live.length ? "ALL SELECTED" : `${n} SELECTED`;
+  // The group buttons are plain push buttons: they never stay lit. What they change shows on each soldier's own
+  // HOLD / SLOW / RUN buttons in the list above.
+  const off = !idx.length || !world || world.mission.over;
+  document.querySelectorAll("#group-orders button").forEach((b) => { b.disabled = off; });
+}
+selAll.addEventListener("change", () => {
+  picks.forEach((p) => { if (!p.disabled) p.checked = selAll.checked; });
+  updateSelection();
+});
+document.querySelectorAll("#group-orders button").forEach((btn) =>
+  btn.addEventListener("click", () => groupOrder(btn.dataset.act)));
+
+// act -> what CONTROL says, and the world orders it takes (HOLD / SLOW / RUN go through setMode)
+const GROUP_ORDERS = {
+  alert: ["alert, look all around", [["alert"]]],
+  inspect: ["inspect the room", [["inspect"]]],
+  retreat: ["fall back", [["retreat"]]],
+  together: ["regroup", [["together"]]],
+  spread: ["spread out", [["spread"]]],
+  north: ["head north", [["north"]]],
+  south: ["head south", [["south"]]],
+  east: ["head east", [["east"]]],
+  west: ["head west", [["west"]]],
+};
+
+function groupOrder(act, picked = targetIdx()) {
+  if (!world || world.mission.over) return;
+  const idx = picked.filter((i) => !world.soldiers[i].dead);
+  if (!idx.length) return;
+  let what, results = [];
+  if (MODES.includes(act)) {
+    [what, results] = setMode(idx.map((i) => world.soldiers[i]), sharedMode(idx) === act ? "normal" : act);
+  } else {
+    let steps;
+    [what, steps] = GROUP_ORDERS[act];
+    const ids = idx.map((i) => String(SQUAD[i].id)).join(",");
+    for (const [action, arg] of steps) results.push(...world.order(ids, action, arg));
+  }
+  const live = world.soldiers.filter((s) => !s.dead).length;
+  const who = idx.length === live && live > 1 ? "ALL" : idx.map((i) => SQUAD[i].callsign).join(", ");
+  addLog(`${who}: ${what.toUpperCase()}`, "player", "CONTROL");
+  sound.radio({ kind: "player" });
   updateRoster();
   sendBridge({
-    type: "event", unit: SQUAD[i].id, status: fullStatus(),
-    text: `CONTROL used the console: ${SQUAD[i].callsign} ${what} (${results.map((r) => r.detail).join(" ")}).`,
+    type: "event", unit: idx.length === 1 ? SQUAD[idx[0]].id : null, status: fullStatus(),
+    text: `CONTROL used the console: ${who} ${what} (${results.map((r) => `${r.name || ""} ${r.detail}`.trim()).join(" ")}).`,
   });
 }
 

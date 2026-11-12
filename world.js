@@ -8,10 +8,16 @@ const WALL_H = 2.6;
 const EYE_H = 1.6;
 const TURN_SPEED = 2.6;  // radians / second (walking speed comes from behavior.js)
 
-// Soldier model (Mixamo FBX). Until it loads, or if it can't (e.g. opened from file://),
-// soldiers are drawn as a simple placeholder figure.
+// Soldier models (Mixamo FBX), one per callsign. Until a model loads, or if it can't (e.g. opened from file://),
+// that soldier is drawn as a simple placeholder figure. The animations are shared by all of them.
 const CHARACTER = {
-  model: "characters/Vanguard By T. Choonyung.fbx",
+  models: {
+    FROST: "characters/soldiers/frost.fbx",
+    VASQUEZ: "characters/soldiers/vasquez.fbx",
+    HUDSON: "characters/soldiers/hudson.fbx",
+    DRAKE: "characters/soldiers/drake.fbx",
+  },
+  model: "characters/Vanguard By T. Choonyung.fbx", // for anyone without a model of their own
   walk: "characters/Walk With Rifle.fbx",
   run: "characters/Run Forward.fbx",
   idle: "characters/Rifle Turn.fbx",  // only its first frame: standing with the rifle up
@@ -444,6 +450,60 @@ function createWorld(width, height, squad) {
     return { dist, prev };
   }
 
+  // Soldiers' routes: 8 directions, a diagonal step costs √2. A diagonal is only taken when both tiles beside it
+  // are open too, so nobody clips a wall corner (in 1-tile corridors they still walk straight).
+  // Same result shape as bfs(); distances are in tiles but no longer whole numbers.
+  const MOVES = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [-1, -1], [1, -1]];
+  function routeSearch(fx, fy, passable = isOpen) {
+    const dist = new Float32Array(rows * cols).fill(-1);
+    const prev = new Int32Array(rows * cols).fill(-1);
+    const heap = [[0, idx(fx, fy)]]; // binary min-heap of [distance, tile index]
+    const push = (e) => {
+      heap.push(e);
+      for (let i = heap.length - 1; i > 0;) {
+        const p = (i - 1) >> 1;
+        if (heap[p][0] <= heap[i][0]) break;
+        [heap[p], heap[i]] = [heap[i], heap[p]];
+        i = p;
+      }
+    };
+    const pop = () => {
+      const top = heap[0], last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i], heap[m]];
+          i = m;
+        }
+      }
+      return top;
+    };
+    dist[idx(fx, fy)] = 0;
+    const done = new Uint8Array(rows * cols);
+    while (heap.length) {
+      const [d, i] = pop();
+      if (done[i]) continue;
+      done[i] = 1;
+      const x = i % cols, y = (i / cols) | 0;
+      for (const [dx, dy] of MOVES) {
+        const nx = x + dx, ny = y + dy;
+        if (!passable(nx, ny)) continue;
+        if (dx && dy && (!passable(x + dx, y) || !passable(x, y + dy))) continue;
+        const j = idx(nx, ny), nd = d + (dx && dy ? Math.SQRT2 : 1);
+        if (dist[j] >= 0 && dist[j] <= nd + 1e-6) continue;
+        dist[j] = nd;
+        prev[j] = i;
+        push([nd, j]);
+      }
+    }
+    return { dist, prev };
+  }
+
   function pathFrom(search, tx, ty) {
     const path = [];
     for (let i = idx(tx, ty); search.prev[i] >= 0; i = search.prev[i]) path.unshift([i % cols, (i / cols) | 0]);
@@ -538,7 +598,8 @@ function createWorld(width, height, squad) {
       nx: sx, ny: sy,              // tile walking to
       progress: 1,                 // 0..1 between tiles
       heading: 0,
-      dir: -1,                     // index into DIRS
+      dir: -1,                     // index into MOVES (8 directions)
+      stepLen: 1,                  // length of the current step in tiles (√2 on a diagonal)
       lookOffset: 0,               // head turn relative to the body
       lookTarget: 0,
       walked: Math.random() * 10,  // distance for head bob
@@ -591,44 +652,144 @@ function createWorld(width, height, squad) {
     return Math.hypot(v[n - 3] - v[0], v[n - 1] - v[2]) / clip.duration;
   }
 
+  // ---------- Rifle ----------
+  // A simple black rifle built from boxes and a cylinder (the soldier model comes unarmed). Built along +Z with the
+  // pistol grip at the origin, so lookAt() points the barrel. Each frame it sits in the right hand, aimed at the left.
+  const rifleMat = new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.55, metalness: 0.5 });
+  const rifleParts = [ // [geometry, x, y, z, tilt about X]
+    [new THREE.BoxGeometry(0.055, 0.085, 0.40), 0, 0.035, 0.10, 0],    // receiver
+    [new THREE.BoxGeometry(0.06, 0.065, 0.24), 0, 0.03, 0.40, 0],      // handguard
+    [new THREE.CylinderGeometry(0.012, 0.012, 0.16, 8), 0, 0.04, 0.58, Math.PI / 2], // barrel
+    [new THREE.BoxGeometry(0.045, 0.085, 0.24), 0, 0.005, -0.21, 0],   // stock
+    [new THREE.BoxGeometry(0.035, 0.10, 0.045), 0, -0.04, 0.0, -0.3],  // pistol grip
+    [new THREE.BoxGeometry(0.03, 0.14, 0.065), 0, -0.065, 0.17, 0.15], // magazine
+    [new THREE.BoxGeometry(0.022, 0.035, 0.14), 0, 0.09, 0.06, 0],     // sight rail
+  ];
+  function makeRifle() {
+    const rifle = new THREE.Group();
+    for (const [geo, x, y, z, tilt] of rifleParts) {
+      const m = new THREE.Mesh(geo, rifleMat);
+      m.position.set(x, y, z);
+      m.rotation.x = tilt;
+      rifle.add(m);
+    }
+    return rifle;
+  }
+
+  const _grip = new THREE.Vector3(), _palm = new THREE.Vector3(), _left = new THREE.Vector3();
+  const _dir = new THREE.Vector3(), _look = new THREE.Vector3();
+  const LOW_READY = new THREE.Vector3(0, -0.57, -0.82); // body space: forward and down, when the hands let go
+  function holdRifle(s, dt) {
+    const { rifle, rightHand, rightPalm, leftHand } = s.anim;
+    rightHand.getWorldPosition(_grip);
+    if (rightPalm) _grip.lerp(rightPalm.getWorldPosition(_palm), 0.5); // between wrist and knuckles
+    leftHand.getWorldPosition(_left);
+    _dir.subVectors(_left, _grip);
+    const span = _dir.length();
+    // Both hands on the rifle (walk, idle, fire): point it at the left hand. Otherwise (the run swings its arms)
+    // carry it pointing forward and down.
+    if (span > 0.12 && span < 0.6) _dir.divideScalar(span);
+    else _dir.copy(LOW_READY).applyQuaternion(s.body.quaternion);
+    s.rifleDir = s.rifleDir ? s.rifleDir.lerp(_dir, Math.min(1, dt * 14)).normalize() : _dir.clone();
+    rifle.position.copy(s.body.worldToLocal(_grip.clone()));
+    rifle.lookAt(_look.addVectors(_grip, s.rifleDir));
+  }
+
+  // The clips were recorded on the Vanguard skeleton. Each soldier model can name its bones differently
+  // ("mixamorig1Hips" vs "mixamorigHips") and have other proportions, so keep only the bone rotations plus the
+  // hips position, renamed for that skeleton and with the hips height scaled to its body.
+  function findHips(root) {
+    let hips = null;
+    root.traverse((o) => { if (!hips && o.isBone && /Hips$/.test(o.name)) hips = o; });
+    return hips;
+  }
+  function retarget(clip, prefix, hipsScale) {
+    const tracks = clip.tracks
+      .filter((t) => /\.quaternion$/.test(t.name) || /Hips\.position$/.test(t.name))
+      .map((t) => {
+        const tr = t.clone();
+        tr.name = t.name.replace(/^mixamorig\d*/, prefix);
+        if (/Hips\.position$/.test(t.name)) for (let i = 0; i < tr.values.length; i++) tr.values[i] *= hipsScale;
+        return tr;
+      });
+    return new THREE.AnimationClip(clip.name, clip.duration, tracks);
+  }
+
   async function loadCharacter() {
     if (!THREE.FBXLoader || !THREE.SkeletonUtils) return;
-    const [model, walkFbx, idleFbx, fireFbx, runFbx] = await Promise.all(
-      [CHARACTER.model, CHARACTER.walk, CHARACTER.idle, CHARACTER.fire, CHARACTER.run].map(loadFBX));
+    const [walkFbx, idleFbx, fireFbx, runFbx] = await Promise.all(
+      [CHARACTER.walk, CHARACTER.idle, CHARACTER.fire, CHARACTER.run].map(loadFBX));
     // the run clip's speed, scaled by the walk clip whose real speed is known
     const walkRaw = hipsSpeed(walkFbx.animations[0]), runRaw = hipsSpeed(runFbx.animations[0]);
     const runSpeed = walkRaw > 0 && runRaw > walkRaw ? CHARACTER.walkClipSpeed * runRaw / walkRaw : CHARACTER.runClipSpeed;
-    const walkClip = inPlace(walkFbx.animations[0]);
-    const idleClip = inPlace(idleFbx.animations[0]);
-    const fireClip = inPlace(fireFbx.animations[0]);
-    const runClip = inPlace(runFbx.animations[0]);
-    grayscale(model);
-    const scale = CHARACTER.height / new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).y;
+    const clips = {
+      walk: inPlace(walkFbx.animations[0]),
+      idle: inPlace(idleFbx.animations[0]),
+      fire: inPlace(fireFbx.animations[0]),
+      run: inPlace(runFbx.animations[0]),
+    };
+    const clipHipsY = findHips(walkFbx)?.position.y || 1;
 
-    soldiers.forEach((s) => {
-      const fig = THREE.SkeletonUtils.clone(model);
-      fig.scale.setScalar(scale);
-      fig.rotation.y = Math.PI; // Mixamo characters face +Z; soldiers face -Z
-      fig.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
-      const mixer = new THREE.AnimationMixer(fig);
-      const walk = mixer.clipAction(walkClip);
-      walk.time = Math.random() * walkClip.duration; // squad not in lockstep
-      walk.play();
-      walk.enabled = false; // off until the first crossfade
-      const idle = mixer.clipAction(idleClip);
-      idle.paused = true; // hold the first frame
-      idle.play();
-      const fire = mixer.clipAction(fireClip); // loops for as long as the burst lasts
-      fire.play();
-      fire.enabled = false;
-      const run = mixer.clipAction(runClip);
-      run.play();
-      run.enabled = false;
-      s.body.remove(s.placeholder);
-      s.body.add(fig);
-      s.anim = { mixer, actions: { walk, idle, fire, run }, state: "idle", runSpeed };
-    });
+    // Each soldier gets their own model as soon as it arrives (they're big); the shared one stands in for anyone
+    // without a model of their own or whose model fails to load.
+    let shared = null;
+    const sharedModel = () => (shared ??= loadFBX(CHARACTER.model));
+    await Promise.all(soldiers.map(async (s) => {
+      const url = CHARACTER.models[s.callsign];
+      let model;
+      try {
+        model = await (url ? loadFBX(url) : sharedModel());
+      } catch (err) {
+        console.warn(`Model for ${s.callsign} not loaded, using the shared one:`, err);
+        model = await sharedModel();
+      }
+      dressSoldier(s, model, clips, clipHipsY, runSpeed);
+    }));
   }
+
+  function dressSoldier(s, model, rawClips, clipHipsY, runSpeed) {
+    const hips = findHips(model);
+    if (!hips) { console.warn(`${s.callsign}'s model has no Mixamo skeleton`); return; }
+    const prefix = hips.name.slice(0, -"Hips".length);
+    if (!model.userData.ready) { // a model shared by several soldiers is prepared once
+      grayscale(model);
+      model.userData.scale = CHARACTER.height / new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).y;
+      model.userData.ready = true;
+    }
+    const hipsScale = hips.position.y / clipHipsY;
+    const clip = {};
+    for (const k in rawClips) clip[k] = retarget(rawClips[k], prefix, hipsScale);
+
+    const fig = THREE.SkeletonUtils.clone(model);
+    fig.scale.setScalar(model.userData.scale);
+    fig.rotation.y = Math.PI; // Mixamo characters face +Z; soldiers face -Z
+    fig.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+    const mixer = new THREE.AnimationMixer(fig);
+    const walk = mixer.clipAction(clip.walk);
+    walk.time = Math.random() * clip.walk.duration; // squad not in lockstep
+    walk.play();
+    walk.enabled = false; // off until the first crossfade
+    const idle = mixer.clipAction(clip.idle);
+    idle.paused = true; // hold the first frame
+    idle.play();
+    const fire = mixer.clipAction(clip.fire); // loops for as long as the burst lasts
+    fire.play();
+    fire.enabled = false;
+    const run = mixer.clipAction(clip.run);
+    run.play();
+    run.enabled = false;
+    s.body.remove(s.placeholder);
+    s.body.add(fig);
+    s.anim = { mixer, actions: { walk, idle, fire, run }, state: "idle", runSpeed };
+    const rightHand = fig.getObjectByName(prefix + "RightHand");
+    const leftHand = fig.getObjectByName(prefix + "LeftHand");
+    if (rightHand && leftHand) {
+      const rifle = makeRifle();
+      s.body.add(rifle);
+      Object.assign(s.anim, { rifle, rightHand, leftHand, rightPalm: fig.getObjectByName(prefix + "RightHandMiddle1") });
+    }
+  }
+
 
   function animateSoldier(s, dt, moving, turning, firing) {
     const a = s.anim;
@@ -645,6 +806,7 @@ function createWorld(width, height, squad) {
     a.actions.walk.timeScale = moving ? s.speed / CHARACTER.walkClipSpeed : 0.6;
     a.actions.run.timeScale = s.speed / a.runSpeed;
     a.mixer.update(dt);
+    if (a.rifle) holdRifle(s, dt);
   }
 
   loadCharacter().catch((err) => console.warn("Soldier model not loaded, using placeholder figure:", err));
@@ -764,14 +926,15 @@ function createWorld(width, height, squad) {
 
   function stepTo(s, d) {
     s.dir = d;
-    s.nx = s.tx + DIRS[d][0];
-    s.ny = s.ty + DIRS[d][1];
+    s.nx = s.tx + MOVES[d][0];
+    s.ny = s.ty + MOVES[d][1];
+    s.stepLen = MOVES[d][0] && MOVES[d][1] ? Math.SQRT2 : 1; // in tiles
     s.progress = 0;
   }
 
   // The soldiers' minds (see behavior.js)
   const brain = createSquadBrain({
-    nav: { isOpen, cols, rows, DIRS, DIR_NAMES, bfs, pathFrom, idx, roomOf, rooms, findRoom, headingFor, angleDiff, fogAt },
+    nav: { isOpen, cols, rows, DIRS, DIR_NAMES, bfs: routeSearch, pathFrom, idx, roomOf, rooms, findRoom, headingFor, angleDiff, fogAt },
     soldiers, aliens, killAlien, killSoldier,
     emit: (s, text) => onEvent(s, text),
   });
@@ -870,7 +1033,7 @@ function createWorld(width, height, squad) {
     const times = [];
     let t = 0.35;
     while (t < duration - 0.3) {
-      const rounds = 3 + Math.floor(Math.random() * 5);
+      const rounds = 5 + Math.floor(Math.random() * 7); // 5-11 rounds, then a short pause
       for (let i = 0; i < rounds && t < duration - 0.3; i++, t += 0.07) times.push(t);
       t += 0.15 + Math.random() * 0.3;
     }
@@ -879,7 +1042,7 @@ function createWorld(width, height, squad) {
 
   // Stop and fire a burst; returns nothing, tells main.js when each shot sounds
   function startFiring(s) {
-    const duration = 0.8 + Math.random() * 1.0;
+    const duration = 1.8 + Math.random() * 1.6; // seconds
     s.fireLeft = duration;
     s.fireTime = 0;
     s.shots = burstPattern(duration);
@@ -911,7 +1074,7 @@ function createWorld(width, height, squad) {
     // Next step along the route
     if (s.progress >= 1 && !s.halt && !s.target && s.path.length) {
       const [x, y] = s.path[0];
-      const d = DIRS.findIndex(([dx, dy]) => dx === x - s.tx && dy === y - s.ty);
+      const d = MOVES.findIndex(([dx, dy]) => dx === x - s.tx && dy === y - s.ty);
       if (d < 0) { s.path = []; s.goalKey = null; } // route no longer starts here: replan
       else { s.path.shift(); stepTo(s, d); }
     }
@@ -919,11 +1082,11 @@ function createWorld(width, height, squad) {
     const walking = s.progress < 1 && !firing && !s.target;
 
     // Body turns toward the way it walks, or (standing) toward what it watches; the head adds a glance
-    const want = walking ? headingFor(DIRS[s.dir]) : s.gaze != null ? s.gaze : s.heading;
+    const want = walking ? headingFor(MOVES[s.dir]) : s.gaze != null ? s.gaze : s.heading;
     const diff = angleDiff(s.heading, want);
     s.heading += Math.sign(diff) * Math.min(Math.abs(diff), TURN_SPEED * (s.speed > 2.2 ? 1.6 : 1) * dt);
     if (walking) {
-      s.restHeading = headingFor(DIRS[s.dir]);
+      s.restHeading = headingFor(MOVES[s.dir]);
       const toGaze = s.gaze != null ? angleDiff(s.heading, s.gaze) : 0;
       s.lookTarget = Math.max(-1.3, Math.min(1.3, toGaze + s.glance));
     } else {
@@ -933,7 +1096,7 @@ function createWorld(width, height, squad) {
 
     let moving = false;
     if (walking && Math.abs(diff) < 0.15) {
-      s.progress = Math.min(1, s.progress + (s.speed * dt) / TILE);
+      s.progress = Math.min(1, s.progress + (s.speed * dt) / (TILE * (s.stepLen || 1)));
       s.walked += s.speed * dt;
       moving = true;
     }

@@ -8,7 +8,8 @@
 //                point-blank  a hostile within ~2 tiles -> shoot it, even under "fire hold"
 //   ORDERS     the player's intent, given through the AI agent
 //                task         what to do now: patrol, patrol <room>, goto, north/south/east/west, hold,
-//                             retreat, follow, continue (one at a time; a new task replaces the old)
+//                             alert, inspect [room], retreat, follow, continue (one at a time; a new task
+//                             replaces the old)
 //                standing     how to do it, kept until changed: pace, fire, contact, pursue, watch
 //                shape        how the squad is arranged: together, split (ALPHA/BRAVO), spread
 //   DEFAULT    what they do untold: patrol freely, stay together, watch different angles,
@@ -45,6 +46,9 @@ const BEHAVIOR = {
     lostEvery: 15,   // seconds between "lost sight" calls
   },
   tracker: 12,       // motion tracker range in tiles (same as the map sonar) (it can't tell the ducts from the floor)
+  alert: 5,          // seconds an "alert" lasts: stop and look all around, then carry on
+  sweepStep: 1.25,   // seconds facing each of the four directions while looking all around
+  inspect: { spots: [2, 5], tilesPerSpot: 14, look: 2.5, step: 0.65 }, // checking a room: spots, how long at each
 };
 
 const DEFAULT_ORDERS = { pace: "normal", fire: "free", contact: "engage", pursue: "on", watch: "auto" };
@@ -82,6 +86,8 @@ const SHORTCUTS = {
   explore: ["patrol"], wander: ["patrol"], search: ["patrol"],
   stop: ["hold"], stay: ["hold"], halt: ["hold"], wait: ["hold"],
   resume: ["continue"],
+  scan: ["alert"], lookout: ["alert"], "look-around": ["alert"],
+  check: ["inspect"], clear: ["inspect"], sweep: ["inspect"],
   flee: ["retreat"], fallback: ["retreat"], withdraw: ["retreat"],
   regroup: ["together"], group: ["together"],
   n: ["north"], s: ["south"], e: ["east"], w: ["west"],
@@ -89,7 +95,7 @@ const SHORTCUTS = {
   "hold-fire": ["fire", "hold"], "weapons-free": ["fire", "free"],
 };
 
-const ORDER_HELP = "Tasks: patrol [room], goto <room | x y>, north/south/east/west, hold, retreat [room], " +
+const ORDER_HELP = "Tasks: patrol [room], goto <room | x y>, north/south/east/west, hold, alert, inspect [room], retreat [room], " +
   "follow <unit>, continue. Squad: together, split, spread. Standing: pace slow|normal|fast, fire free|hold, " +
   "contact engage|hold|retreat, pursue on|off, watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>, reset.";
 
@@ -115,6 +121,35 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
   const where = (x, y) => roomOf(Math.round(x), Math.round(y))?.name ?? "a corridor";
   const compass = (dx, dy) => COMPASS[(Math.round(Math.atan2(dx, -dy) / (Math.PI / 4)) + 8) % 8];
   const angleTo = (s, x, y) => { const [px, py] = pos(s); return Math.atan2(-(x - px), -(y - py)); };
+  // How far a soldier can see from where they stand in a direction (tiles, up to `max`) before a wall
+  function viewLength(s, angle, max = 8) {
+    const [px, py] = pos(s);
+    const dx = -Math.sin(angle), dy = -Math.cos(angle);
+    for (let d = 0.25; d <= max; d += 0.25) {
+      if (!isOpen(Math.round(px + dx * d), Math.round(py + dy * d))) return d - 0.25;
+    }
+    return max;
+  }
+  // The direction closest to `angle` with open space ahead, so nobody stands staring at a wall.
+  // Tries 22.5° steps either side; if nothing is open enough, the direction with the longest view.
+  const MIN_VIEW = 3; // tiles
+  function faceOpen(s, angle) {
+    let best = angle, bestView = -1;
+    for (let k = 0; k <= 8; k++) {
+      for (const sign of k ? [1, -1] : [1]) {
+        const a = angle + sign * k * Math.PI / 8;
+        const v = viewLength(s, a);
+        if (v >= MIN_VIEW) return a;
+        if (v > bestView) { bestView = v; best = a; }
+      }
+    }
+    return best;
+  }
+  // A glance that would end up a few centimetres from a wall goes the other way, or doesn't happen
+  function openGlance(s, gaze, glance) {
+    if (!glance || viewLength(s, gaze + glance, 1.5) >= 1.5) return glance;
+    return viewLength(s, gaze - glance, 1.5) >= 1.5 ? -glance : 0;
+  }
   const tiles = (n) => `${Math.round(n)} tile${Math.round(n) === 1 ? "" : "s"}`;
   const ok = (detail) => ({ ok: true, detail });
   const bad = (detail) => ({ ok: false, detail });
@@ -358,7 +393,7 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
 
   // ---------- Tasks ----------
   function setTask(s, task) {
-    if (s.task && s.task.kind !== "hold" && s.task.kind !== "follow") s.prevTask = s.task;
+    if (s.task && !["hold", "follow", "alert"].includes(s.task.kind)) s.prevTask = s.task;
     s.task = task;
     s.goalKey = null;
     s.lastTarget = null;
@@ -375,6 +410,8 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
         return t.room ? `go to ${t.room.name}` : `go to (${t.tile.join(", ")})`;
       case "heading": return `head ${t.dir}`;
       case "hold": return "hold position";
+      case "alert": return `alert: stopped, looking all around (${Math.max(0, Math.ceil(t.until - now))} s left)`;
+      case "inspect": return `inspect ${t.room.name} (${t.done}/${t.spots.length} spots checked)`;
       case "follow": return `follow ${s.leader ? s.leader.callsign : "nobody"}`;
       case "retreat": return t.room ? `retreat to ${t.room.name}` : "retreat from danger";
     }
@@ -412,6 +449,8 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
       }
       case "patrol": return patrol(s, dt, null);
       case "patrol_area": return patrol(s, dt, t.room);
+      case "alert": return alert(s);
+      case "inspect": return inspect(s);
       case "retreat":
         if (!startFlee(s, "order", t.room)) {
           emit(s, `${label(s)} has nowhere to retreat to. Holding.`);
@@ -444,6 +483,101 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
     if (!walkTo(s, ...t.tile, `patrol:${t.tile}`)) { t.tile = null; return; }
     if (waitForSquad(s)) return;
     s.doing = area ? `patrolling ${area.name}` : `patrolling, heading to ${t.wpRoom.name}`;
+  }
+
+  // Look all around while standing: front, right, rear, left, one after the other from where it faced
+  function sweepGaze(s, from, step) {
+    const k = Math.floor(Math.max(0, now - from) / step) % 4;
+    s.gaze = faceOpen(s, s.task.sweepFrom + [0, -Math.PI / 2, Math.PI, Math.PI / 2][k]);
+    s.glance = Math.sin(now * 2 + s.id) * 0.15;
+  }
+
+  // Alert: stop for a few seconds, look in every direction, then go back to what it was doing
+  // (a follower stays in its group and falls back in behind its leader)
+  function alert(s) {
+    const t = s.task;
+    stopHere(s, "alert");
+    if (now >= t.until) {
+      const back = t.resume;
+      s.task = back.kind === "follow" && !s.leader ? { kind: "hold" } : back;
+      s.goalKey = null;
+      // one report per group: followers just fall back in
+      if (!s.leader) emit(s, `${label(s)} all-round check done, ${s.visible.length ? "hostiles in sight" : "nothing in sight"}. Back to: ${taskText(s)}.`);
+      return doTask(s, 0);
+    }
+    s.doing = "on alert, looking all around";
+    sweepGaze(s, t.since, BEHAVIOR.sweepStep);
+  }
+
+  // Inspect a room: walk to a few spots spread across it, look all around at each, report it clear and hold
+  function inspect(s) {
+    const t = s.task;
+    const I = BEHAVIOR.inspect;
+    if (t.lookUntil != null) {
+      stopHere(s, "inspect");
+      s.doing = `inspecting ${t.room.name}, looking around`;
+      if (now < t.lookUntil) return sweepGaze(s, t.lookUntil - I.look, I.step);
+      t.lookUntil = null;
+      t.done++;
+    }
+    const spot = t.spots[t.done];
+    if (!spot) {
+      const before = t.before;
+      emit(s, `${label(s)} finished inspecting ${t.room.name}: ${s.visible.length ? "hostiles in sight" : "nothing found"}. Holding.`);
+      setTask(s, { kind: "hold" });
+      s.prevTask = before; // "continue" goes back to what it did before the inspection
+      return doTask(s, 0);
+    }
+    if (atTile(s, spot)) {
+      t.lookUntil = now + I.look;
+      t.sweepFrom = s.heading;
+      return inspect(s);
+    }
+    if (!walkTo(s, ...spot, `inspect:${spot}`)) { t.done++; return; }
+    if (waitForSquad(s)) return;
+    s.doing = `inspecting ${t.room.name}, spot ${t.done + 1} of ${t.spots.length}`;
+  }
+
+  // A few spots spread across a room (near its walls and corners), in walking order from the soldier
+  function inspectSpots(s, room) {
+    const all = roomTiles(room);
+    const I = BEHAVIOR.inspect;
+    const n = clamp(Math.round(all.length / I.tilesPerSpot), I.spots[0], I.spots[1]);
+    const cx = room.x + (room.w - 1) / 2, cy = room.y + (room.h - 1) / 2;
+    const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const spots = [all.reduce((b, t) => (d(t, [cx, cy]) > d(b, [cx, cy]) ? t : b))];
+    while (spots.length < Math.min(n, all.length)) {
+      const far = (t) => Math.min(...spots.map((c) => d(c, t)));
+      spots.push(all.reduce((b, t) => (far(t) > far(b) ? t : b)));
+    }
+    // nudge each spot one tile in from the wall so the soldier sees the room, not the wall
+    const inward = spots.map(([x, y]) => {
+      const nx = x + Math.sign(Math.round(cx - x)), ny = y + Math.sign(Math.round(cy - y));
+      return isOpen(nx, ny) && roomOf(nx, ny) === room ? [nx, ny] : [x, y];
+    });
+    const order = [];
+    let at = here(s);
+    while (inward.length) {
+      const i = inward.reduce((bi, t, k) => (d(t, at) < d(inward[bi], at) ? k : bi), 0);
+      at = inward.splice(i, 1)[0];
+      order.push(at);
+    }
+    return order;
+  }
+
+  // The room the soldier is in, or else the nearest one it can walk to
+  function nearestRoom(s) {
+    const [x, y] = here(s);
+    const inside = roomOf(x, y);
+    if (inside) return inside;
+    const search = bfs(x, y);
+    let best = null, bestD = Infinity;
+    for (const room of rooms) {
+      const tile = roomTile(room, s);
+      const dist = tile ? search.dist[idx(...tile)] : -1;
+      if (dist >= 0 && dist < bestD) { bestD = dist; best = room; }
+    }
+    return best;
   }
 
   function roomWaypoint(s) {
@@ -695,19 +829,21 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
       s.gaze = s.watchAim.point ? angleTo(s, ...s.watchAim.point) : s.watchAim.heading;
       s.glance = glanceFor(s, dt, "watch") + sway;
     } else if (w === "rear") {
-      s.gaze = base + Math.PI;
+      s.gaze = moving ? base + Math.PI : faceOpen(s, base + Math.PI);
       s.glance = glanceFor(s, dt, "watch") + sway;
     } else if (moving) { // auto or front: eyes on the way ahead, with the odd look around
       s.glance = glanceFor(s, dt, "walk") + sway;
     } else if (w === "front") {
-      s.gaze = base;
+      s.gaze = faceOpen(s, base);
       s.glance = glanceFor(s, dt, "watch") + sway;
     } else {
       const group = groupOf(s);
       const r = group.indexOf(s) % 4;
-      s.gaze = base + [0, Math.PI / 2, -Math.PI / 2, Math.PI][r];
+      s.gaze = faceOpen(s, base + [0, Math.PI / 2, -Math.PI / 2, Math.PI][r]);
       s.glance = glanceFor(s, dt, "stand") + sway;
     }
+    // standing still, a glance doesn't end up with the nose against a wall either
+    if (!moving && s.gaze != null) s.glance = openGlance(s, s.gaze, s.glance);
   }
 
   // ---------- Decide ----------
@@ -834,11 +970,23 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
       if (d < 0) return bad(`No route to ${room ? room.name : `(${tile.join(", ")})`}.`);
       setTask(s, { kind: "goto", tile, room });
       const name = room ? room.name : `(${tile.join(", ")}) in ${where(...tile)}`;
-      return ok(d ? `Moving to ${name}, ${d} tiles.` : `Already at ${name}.`);
+      return ok(d ? `Moving to ${name}, ${Math.round(d)} tiles.` : `Already at ${name}.`);
     },
     hold(s) {
       setTask(s, { kind: "hold" });
       return ok("Holding position.");
+    },
+    alert(s) {
+      const resume = s.task.kind === "alert" ? s.task.resume : s.task;
+      setTask(s, { kind: "alert", since: now, until: now + BEHAVIOR.alert, resume, sweepFrom: s.heading });
+      return ok(`Alert: stopping and looking all around for ${BEHAVIOR.alert} seconds.`);
+    },
+    inspect(s, arg) {
+      const room = arg ? findRoom(arg) : nearestRoom(s);
+      if (!room) return bad(arg ? unknownRoom(arg) : "No room to inspect from here.");
+      const before = s.task.kind === "inspect" ? s.task.before : s.task.kind === "follow" || s.task.kind === "hold" ? s.prevTask : s.task;
+      setTask(s, { kind: "inspect", room, spots: inspectSpots(s, room), done: 0, lookUntil: null, before });
+      return ok(`Inspecting ${room.name}, checking ${s.task.spots.length} spots.`);
     },
     retreat(s, arg) {
       const room = arg ? findRoom(arg) : null;
@@ -851,7 +999,10 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
     follow(s, arg) {
       const L = findUnits(arg)[0];
       if (!L || L === s) return bad(`follow needs another unit, e.g. follow 1.`);
-      if (rootOf(L) === s) return bad(`${L.callsign} is already following ${s.callsign}.`);
+      // no loops: s can't follow anyone who (directly or down the line) follows s
+      for (let o = L, k = 0; o && k < soldiers.length; o = o.leader, k++) {
+        if (o.leader === s) return bad(`${L.callsign} is already following ${s.callsign}.`);
+      }
       setTask(s, { kind: "follow" });
       s.leader = L;
       s.team = L.team;
@@ -1014,6 +1165,7 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
     if (SHAPES[action]) return SHAPES[action](units);
     if (STANDING[action] || action === "reset") return units.map((s) => result(s, setStanding(s, action, arg)));
     if (!TASKS[action]) return [{ unit: unitSpec, ok: false, detail: `Unknown order "${rawAction}". ${ORDER_HELP}` }];
+    if (action === "alert") return units.map((s) => result(s, TASKS.alert(s)));
     return units.map((s) => {
       // a follower whose leader got the same order stays in formation; the leader carries the task
       if (s.leader && units.includes(rootOf(s)) && action !== "follow") return result(s, ok(`Staying with ${s.leader.callsign}.`));
@@ -1082,6 +1234,8 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
       case "goto": return t.spread ? "SPRD" : "→" + (t.room ? t.room.label : "POS");
       case "heading": return "→" + t.dir[0].toUpperCase();
       case "hold": return "HOLD";
+      case "alert": return "ALRT";
+      case "inspect": return "I:" + t.room.label;
       case "follow": return s.leader ? `FOL${s.leader.id}` : "FOL";
       case "retreat": return "RTRT";
     }

@@ -51,7 +51,7 @@ Soldiers decide for themselves about 10 times a second (`behavior.js`), in three
 
 Orders (`order <who> <order> [argument]`, who = `1-4`, a name, `alpha`/`bravo`, `all` or `1,3`):
 
-- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `retreat [room]` · `follow <unit>` · `continue`
+- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `alert` (stop and look all around for 5 s, then carry on; followers stay in their group) · `inspect [room]` (walk to a few spots across the room, by default the one they're in or the nearest, look around at each, report and hold) · `retreat [room]` · `follow <unit>` · `continue`
 - **Squad shape**: `together` (regroup behind the lowest-numbered unit) · `split` (ALPHA = 1+2, BRAVO = 3+4) · `spread` (fan out across the room and act independently)
 - **Standing orders**: `pace slow|normal|fast` · `fire free|hold` · `contact engage|hold|retreat` (what to do on seeing a hostile) · `pursue on|off` · `watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>` · `reset`
 
@@ -84,7 +84,9 @@ the next leader. `world.hurt(unit, amount)` in the browser console takes health 
 
 Soldiers call in hostiles as events for the agent to voice: contacts (with what each hostile is doing), a hostile
 charging them, one dropping from a ceiling vent, motion-tracker movement close by with nothing in sight (limited
-to one call every few seconds for the squad), losing sight of one, kills. Every radio message plays a short
+to one call every few seconds for the squad), losing sight of one, kills. With no agent linked, the soldiers call in those events
+themselves as short radio messages (e.g. `FROST: CONTACT! ...`, `MOTHER: UNIT 3 (HUDSON) IS DOWN. NO LIFE SIGNS.`);
+with an agent linked, the agent voices them instead. Every radio message, CONTROL's own included, plays a short
 transmission: a squelch click, half a second of choppy, unintelligible static (MOTHER: data chirps), a click. Calls
 about hostiles (the soldier just had a contact, charge, vent or tracker event, or the message sounds like an alarm)
 come through shouted: louder, overdriven and harsher.
@@ -94,10 +96,19 @@ pings, and a heartbeat pulse once things get tense. It follows the game's tensio
 nearest hostile is, ducts included, hostiles in view) and plays and mutes with the AUDIO button.
 
 The player talks to the whole squad and names a soldier in the message to address one ("Drake, hold there").
-Each soldier in the squad list also has quick console buttons that stay lit while active: HOLD (stop and look
-around; press again to carry on, rejoining their group if they were following someone) and SLOW / RUN (pace;
-only one at a time, press the lit one again for normal pace). They show the soldier's actual state, so orders
-from the agent light them too, and each press is reported to the agent.
+Each soldier in the squad list also has quick console buttons HOLD (stop and look around), SLOW and RUN. Only
+one can be lit at a time; with none lit the soldier moves at normal pace (the default). Pressing the lit one goes
+back to that default: letting go of HOLD, they carry on, rejoining their group if they were following someone.
+The buttons show the soldier's actual state, so orders from the agent light them too, and each press is reported
+to the agent.
+
+Each soldier also has a checkbox (all ticked at the start; the box in the SQUAD title ticks or unticks them all).
+Under the squad list, group-order buttons apply to every ticked soldier at once (with none ticked, to the soldier
+on the monitor): HOLD / SLOW / RUN (as above; lit
+when all the ticked soldiers are in that mode), ALERT, INSPECT ROOM, RETREAT, TOGETHER and SPREAD, and a direction
+pad sends them as far as possible north, south, east or west (the centre is HOLD). Each order shows in the comms
+log as a CONTROL message (e.g. `CONTROL: FROST, HUDSON: HEAD NORTH`) and is reported to the agent, so the player
+can either type orders in the chat or use the console.
 
 ## Files
 

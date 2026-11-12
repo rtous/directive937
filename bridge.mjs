@@ -36,6 +36,8 @@ const ORDERS = `  who: 1-4, a soldier's name, alpha / bravo (teams after a split
     goto <room> | goto <x> <y>  go to a room or a grid position
     north|south|east|west       travel as far as possible that way
     hold                        stay where you are
+    alert                       stop and look all around for 5 s, then carry on
+    inspect [room]              check a room (default: the current/nearest) spot by spot, then hold
     retreat [room]              run from known hostiles (or to a room), then hold
     follow <unit>               follow another soldier
     continue                    resume the previous task

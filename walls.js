@@ -1,7 +1,7 @@
 "use strict";
 
-// Wall styles: procedural textures for the colony's walls, and which one each wall tile gets.
-// Each room has a base style that suits it, with the odd feature panel (hatch, console, cables...);
+// Wall styles: procedural textures for the walls, and which one each wall tile gets.
+// Each room has a base style that suits it (levels.js), with the odd feature panel (hatch, console, cables...);
 // corridors change style every few tiles. The feed is grayscale, so the styles differ mostly in shape
 // and brightness rather than colour.
 
@@ -177,19 +177,9 @@ function createWallTextures() {
   };
 }
 
-// Which style each room is built from, and the feature panels sprinkled in
-const WALL_STYLES = {
-  "MEDLAB": { base: "tiles", features: ["console", "hatch"] },
-  "LIVING QUARTERS": { base: "lockers", features: ["panel", "cables"] },
-  "OPERATIONS": { base: "console", features: ["panel", "cables"] },
-  "STORAGE": { base: "ribbed", features: ["hazard", "hatch"] },
-  "ATMOSPHERE PROCESSOR": { base: "pipes", features: ["hazard", "cables"] },
-  "MESS HALL": { base: "panel", features: ["lockers", "hatch"] },
-  "AIRLOCK": { base: "hazard", features: ["ribbed", "hatch"] },
-  "ARMORY": { base: "lockers", features: ["ribbed", "hazard"] },
-  "EXIT": { base: "hazard", features: ["ribbed", "hatch"] },
-  corridor: { base: ["ribbed", "panel", "pipes", "cables"], features: ["hatch", "pipes", "cables", "hazard"] },
-};
+// Corridors (and rooms without a style of their own): a mix of plain styles. Each room picks its own in levels.js
+// as { base, features }: the style it's built from and the feature panels sprinkled in.
+const CORRIDOR_WALLS = { base: ["ribbed", "panel", "pipes", "cables"], features: ["hatch", "pipes", "cables", "hazard"] };
 const WALL_FEATURE_CHANCE = 0.22;
 
 // Repeatable pseudo-random number in [0, 1) for a tile, so the walls look the same every visit
@@ -201,7 +191,7 @@ function tileHash(x, y, salt = 0) {
 
 // Style for a wall tile. room: the room it faces, or null for a corridor wall.
 function wallStyleFor(x, y, room) {
-  const def = WALL_STYLES[room ? room.name : "corridor"] || WALL_STYLES.corridor;
+  const def = room?.walls || CORRIDOR_WALLS;
   if (tileHash(x, y, 1) < WALL_FEATURE_CHANCE) return def.features[Math.floor(tileHash(x, y, 2) * def.features.length)];
   if (Array.isArray(def.base)) { // corridors: a new look every 4 tiles or so
     return def.base[Math.floor(tileHash(Math.floor(x / 4), Math.floor(y / 4), 3) * def.base.length)];

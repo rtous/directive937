@@ -1,41 +1,40 @@
 "use strict";
 
+// The control room: the helmet-camera CRT, the biomonitor, the tactical map, the comms log, the squad console
+// and the link to the player's AI agent. Builds a world for the sector the squad is in (startSector) and runs the loop.
+
 // ---------- Config ----------
 // The squad. One AI agent (on the player's machine) commands and voices all of them.
-// color: the unit's dot on the tactical map (and a hint of it in the squad list)
+// color: the unit's dot on the tactical map (and a hint of it in the squad console)
 const SQUAD = [
   { id: 1, name: "SGT. R. FROST", callsign: "FROST", color: "#ffa040" },
   { id: 2, name: "CPL. J. VASQUEZ", callsign: "VASQUEZ", color: "#4fd8ff" },
   { id: 3, name: "PVT. W. HUDSON", callsign: "HUDSON", color: "#ff6fa8" },
   { id: 4, name: "PVT. M. DRAKE", callsign: "DRAKE", color: "#c09bff" },
 ];
-let selected = 0; // whose helmet camera / vitals are on screen
-const missionStart = performance.now();
 
 const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, "0");
 const rand = (a, b) => a + Math.random() * (b - a);
-
-function formatHMS(totalSeconds) {
-  const s = Math.floor(totalSeconds);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const formatHMS = (seconds) => {
+  const s = Math.floor(seconds);
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
-}
+};
 
+// ---------- State ----------
+let world = null;      // the current level's world (null if the 3D engine isn't available: static only)
+let atSector = { sector: SECTORS.entry, from: null }; // the sector the squad is in, and the access it came through (null: the entry)
+let entry = null;      // who came into this sector: [{ alive, hp }] (null: the whole squad, at the start)
+let levelStart = 0;    // performance.now() when it started
+let levelEnd = null;   // ...and when it ended (the mission clock stops)
+let selected = 0;      // whose helmet camera / vitals are on screen
+const soldier = (i) => world && world.soldiers[i];
+const inPlay = (i) => !!world && !world.soldiers[i].dead;
 
-// ---------- CRT camera feed ----------
-// Drawn at low resolution and scaled up, like an old analog feed.
-const feed = $("feed");
-const fctx = feed.getContext("2d");
-const W = feed.width;
-const H = feed.height;
-const img = fctx.createImageData(W, H);
-const px = new Uint32Array(img.data.buffer);
-const rowGain = new Float32Array(H);
-const crt = $("crt");
-const osdMsg = $("osd-msg");
-
-// Static sound, on by default. Browsers hold audio back until the user first interacts with the page, so it is
-// started now (plays straight away where the browser allows it) and again on the first click or key press.
+// ---------- Sound ----------
+// On by default. Browsers hold audio back until the user first interacts with the page, so it is started now
+// (plays straight away where the browser allows it) and again on the first click or key press.
 const sound = createStaticAudio();
 const audioBtn = $("audio-btn");
 function refreshAudioBtn() {
@@ -58,43 +57,38 @@ function firstGesture() {
 window.addEventListener("pointerdown", firstGesture);
 window.addEventListener("keydown", firstGesture);
 
-// The 3D mission world, seen only through the helmet camera.
-// If Three.js failed to load (e.g. offline) the feed is just static.
-const world = window.THREE ? createWorld(W, H, SQUAD) : null;
+// ---------- CRT camera feed ----------
+// The 3D frame, drawn at low resolution and scaled up, like an old analog feed: grayscale with static, a hum bar,
+// streaks and a faint RF pattern. Only red light (emergency lamps) comes through as colour.
+const feed = $("feed");
+const fctx = feed.getContext("2d");
+const W = feed.width;
+const H = feed.height;
+const img = fctx.createImageData(W, H);
+const px = new Uint32Array(img.data.buffer);
+const rowGain = new Float32Array(H);
+const crt = $("crt");
+const osdMsg = $("osd-msg");
 const sceneCanvas = document.createElement("canvas");
 sceneCanvas.width = W;
 sceneCanvas.height = H;
 const sctx = sceneCanvas.getContext("2d", { willReadFrequently: true });
-let scenePx = null; // RGBA of the latest 3D frame
 
-// Interference state
-let burstUntil = 0;   // heavy snow + "NO SIGNAL" (not triggered yet; reserved for a lost unit)
 let switchUntil = 0;  // heavy snow while changing camera channel
 const streaks = [];   // bright horizontal lines
-// The feed is grayscale; only red light (emergency lamps) comes through as colour
 const RED_MIN = 12;   // ignore faint warm tints
 const RED_GAIN = 2.2; // how strongly red light shows on the monitor
-
-function scheduleEvents(now) {
-  if (Math.random() < 0.08) {
-    streaks.push({ y: Math.floor(rand(0, H)), life: Math.floor(rand(1, 5)), gain: rand(40, 140) });
-  }
-}
 
 function renderFeed(now) {
   const t = now / 1000;
   const switching = now < switchUntil;
-  // a fallen soldier's helmet camera is lost; so is one who went out through the exit (out of range)
-  const lost = world && world.soldiers[selected].dead;
-  const burst = now < burstUntil || switching || lost;
+  // the camera of a soldier who is down, or out through the exit, shows nothing but snow
+  const lost = !!world && !inPlay(selected);
+  const burst = switching || lost;
 
-  const streaksBefore = streaks.length;
-  scheduleEvents(now);
-  sound.update({
-    burst,
-    tearing: false,
-    crackle: streaks.length > streaksBefore || Math.random() < 0.04,
-  });
+  const streak = Math.random() < 0.08;
+  if (streak) streaks.push({ y: Math.floor(rand(0, H)), life: Math.floor(rand(1, 5)), gain: rand(40, 140) });
+  sound.update({ burst, crackle: streak || Math.random() < 0.04 });
 
   // Per-row brightness: dark hum bar drifting up + random streaks
   const humY = (H - ((t * 30) % (H + 80))) | 0;
@@ -112,6 +106,7 @@ function renderFeed(now) {
   }
 
   // Grab the latest 3D frame
+  let scenePx = null;
   if (world) {
     world.render(selected);
     sctx.drawImage(world.canvas, 0, 0, W, H);
@@ -125,19 +120,15 @@ function renderFeed(now) {
   for (let y = 0; y < H; y++) {
     const g = rowGain[y];
     const row = y * W;
-    const srcRow = row;
     const jitter = Math.random() < 0.02 ? (Math.random() * 4 - 2) | 0 : 0;
     for (let x = 0; x < W; x++) {
-      // faint diagonal RF interference pattern
-      const wave = Math.sin(x * 0.35 + y * 0.9 + t * 9) * 5;
+      const wave = Math.sin(x * 0.35 + y * 0.9 + t * 9) * 5; // faint diagonal RF interference
       let pic = 0, red = 0;
       if (scenePx) {
-        let sx = x + jitter;
-        sx = sx < 0 ? 0 : sx >= W ? W - 1 : sx;
-        const si = (srcRow + sx) * 4;
+        const sx = clamp(x + jitter, 0, W - 1);
+        const si = (row + sx) * 4;
         const sr = scenePx[si], sg = scenePx[si + 1], sb = scenePx[si + 2];
-        const lum = sr * 0.3 + sg * 0.59 + sb * 0.11;
-        pic = lum * signal;
+        pic = (sr * 0.3 + sg * 0.59 + sb * 0.11) * signal;
         const excess = sr - (sg > sb ? sg : sb) - RED_MIN; // how much redder than everything else
         if (excess > 0) red = excess * signal;
       }
@@ -152,29 +143,28 @@ function renderFeed(now) {
   }
   fctx.putImageData(img, 0, 0);
 
-  // Overlay state
   crt.classList.toggle("glitch", burst);
-  if (burst) {
-    osdMsg.textContent = switching ? `CH-${pad(SQUAD[selected].id)}` : world && world.soldiers[selected].exited ? "EXITED" : "NO SIGNAL";
-    osdMsg.classList.add("show");
-  } else {
-    osdMsg.classList.remove("show");
-  }
+  osdMsg.classList.toggle("show", burst);
+  if (burst) osdMsg.textContent = switching ? `CH-${pad(SQUAD[selected].id)}` : soldier(selected).exited ? "EXITED" : "NO SIGNAL";
 }
 
-// ---------- ECG ----------
+// ---------- Biomonitor ----------
+// One line under the camera: an ECG trace and the vitals of the soldier on camera, over light static.
 const ecg = $("ecg");
 const ectx = ecg.getContext("2d");
 let ecgX = 0;
 let ecgPrevY = ecg.height / 2;
 let beatPhase = 0;
-const vitals = SQUAD.map(() => ({
-  bpm: Math.round(rand(80, 95)), resp: Math.round(rand(14, 18)),
-  sys: Math.round(rand(115, 128)), dia: Math.round(rand(72, 82)), o2: 97, temp: 37.0,
-}));
+fitCanvas(ecg, () => { ecgX = 0; ecgPrevY = ecg.height / 2; });
 
+const newVitals = () => SQUAD.map(() => ({
+  bpm: Math.round(rand(80, 95)), resp: Math.round(rand(14, 18)),
+  sys: Math.round(rand(115, 128)), dia: Math.round(rand(72, 82)), o2: 97, hp: 100,
+}));
+let vitals = newVitals();
+
+// phase 0..1 within one heartbeat: P wave, QRS spike, T wave
 function ecgSample(phase) {
-  // phase 0..1 within one heartbeat: P wave, QRS spike, T wave
   if (phase < 0.1) return Math.sin(phase / 0.1 * Math.PI) * 4;
   if (phase > 0.16 && phase < 0.19) return -6;
   if (phase >= 0.19 && phase < 0.23) return 28;
@@ -184,18 +174,14 @@ function ecgSample(phase) {
 }
 
 function renderEcg(dt) {
-  const steps = 2;
-  for (let i = 0; i < steps; i++) {
-    beatPhase += (vitals[selected].bpm / 60) * (dt / 1000) / steps;
-    if (beatPhase >= 1) beatPhase -= 1;
-    const flat = world && world.soldiers[selected].dead; // flatline
+  const flat = !!world && !inPlay(selected); // no heartbeat to show
+  ectx.strokeStyle = ectx.shadowColor = "#05b669";
+  ectx.shadowBlur = 4;
+  ectx.lineWidth = 1.5;
+  for (let i = 0; i < 2; i++) {
+    beatPhase = (beatPhase + (vitals[selected].bpm / 60) * (dt / 1000) / 2) % 1;
     const y = ecg.height * 0.6 - (flat ? 0 : ecgSample(beatPhase)) * (ecg.height / 64) + rand(-0.6, 0.6);
-    // erase just ahead of the sweep so the old trace gets overwritten
-    ectx.clearRect(ecgX, 0, 10, ecg.height);
-    ectx.strokeStyle = "#05b669";
-    ectx.shadowColor = "#05b669";
-    ectx.shadowBlur = 4;
-    ectx.lineWidth = 1.5;
+    ectx.clearRect(ecgX, 0, 10, ecg.height); // erase just ahead of the sweep so the old trace gets overwritten
     ectx.beginPath();
     ectx.moveTo(ecgX - 1, ecgPrevY);
     ectx.lineTo(ecgX, y);
@@ -205,263 +191,64 @@ function renderEcg(dt) {
   }
 }
 
-// ---------- Vitals screen static (lighter than the camera) ----------
 const vnoise = $("vitals-noise");
 const vnctx = vnoise.getContext("2d");
 const vimg = vnctx.createImageData(vnoise.width, vnoise.height);
 const vpx = new Uint32Array(vimg.data.buffer);
 function renderVitalsNoise(now) {
-  const vw = vnoise.width;
   const band = (now / 25) % (vnoise.height + 30) - 15; // bright interference band
   for (let i = 0; i < vpx.length; i++) {
-    const y = (i / vw) | 0;
-    let v = Math.random() * 120;
-    if (Math.abs(y - band) < 3) v += 80;
-    if (v > 255) v = 255;
+    const y = (i / vnoise.width) | 0;
+    const v = Math.min(255, Math.random() * 120 + (Math.abs(y - band) < 3 ? 80 : 0));
     vpx[i] = 0xff000000 | (v << 16) | (v << 8) | v;
   }
   vnctx.putImageData(vimg, 0, 0);
 }
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// Heart rate and breathing follow how hard each soldier is working (walking, running) and the danger they're in
+// (hostiles close or in view, firing, fleeing: behavior.js's stress), the two adding up.
+const HEART = { rest: 78, walk: 10, run: 34, danger: 75, max: 190 }; // bpm: at rest, + moving, + danger at its worst
 function updateVitals() {
   vitals.forEach((v, i) => {
-    // heart rate and breathing follow how stressed the soldier is (contact, firing, running)
-    const stress = world ? world.soldiers[i].stress : 0;
-    v.bpm = Math.round(clamp(v.bpm + (82 + stress * 65 - v.bpm) * 0.3 + rand(-3, 3), 65, 165));
-    v.resp = Math.round(clamp(v.resp + (15 + stress * 12 - v.resp) * 0.3 + rand(-1, 1), 12, 30));
+    const s = soldier(i);
+    if (s && s.dead) return Object.assign(v, { bpm: 0, resp: 0, sys: 0, dia: 0, o2: 0, hp: s.exited ? s.hp : 0 });
+    const stress = s ? s.stress : 0;
+    const effort = !s || !s.moving ? 0 : s.speed > CHARACTER.runAbove ? 1 : 0.3; // still, walking, running
+    const exertion = effort === 1 ? HEART.run : effort ? HEART.walk : 0;
+    v.bpm = Math.round(clamp(v.bpm + (HEART.rest + exertion + stress * HEART.danger - v.bpm) * 0.4 + rand(-3, 3), 60, HEART.max));
+    v.resp = Math.round(clamp(v.resp + (15 + effort * 10 + stress * 12 - v.resp) * 0.4 + rand(-1, 1), 12, 36));
     v.sys = Math.round(clamp(v.sys + rand(-2, 2), 105, 150));
     v.dia = Math.round(clamp(v.dia + rand(-1.5, 1.5), 65, 95));
     v.o2 = Math.round(rand(94, 99));
-    v.hp = world ? world.soldiers[i].hp : 100;
-    if (world && world.soldiers[i].dead) Object.assign(v, { bpm: 0, resp: 0, sys: 0, dia: 0, o2: 0, hp: 0 });
+    v.hp = s ? s.hp : 100;
   });
   const v = vitals[selected];
-  const dead = world && world.soldiers[selected].dead;
-  if (dead && world.soldiers[selected].exited) { // out of the level: no telemetry, not a death
-    ["bpm", "o2", "bp", "resp", "hp"].forEach((id) => { $(id).textContent = "--"; $(id).classList.remove("alert"); });
-    $("vstatus").textContent = "EXITED";
-    $("vstatus").classList.remove("alert");
-    return;
+  const s = soldier(selected);
+  const show = (id, text, alert = false) => { $(id).textContent = text; $(id).classList.toggle("alert", alert); };
+  if (s && s.exited) { // out of the level: no telemetry, but not a death
+    ["bpm", "o2", "bp", "resp", "hp"].forEach((id) => show(id, "--"));
+    return show("vstatus", "EXITED");
   }
-  $("bpm").textContent = v.bpm;
-  $("bpm").classList.toggle("alert", v.bpm > 120);
-  $("o2").textContent = v.o2;
-  $("o2").classList.toggle("alert", v.o2 < 95);
-  $("bp").textContent = `${v.sys}/${v.dia}`;
-  $("resp").textContent = v.resp;
-  $("hp").textContent = v.hp;
-  $("hp").classList.toggle("alert", v.hp <= 30);
+  const dead = !!s && s.dead;
   const stressed = v.bpm > 120 || v.o2 < 95;
-  $("vstatus").textContent = dead ? "NO LIFE" : v.hp <= 30 ? "CRITICAL" : stressed ? "STRESS" : "STABLE";
-  $("vstatus").classList.toggle("alert", dead || stressed || v.hp <= 30);
+  show("bpm", v.bpm, v.bpm > 120);
+  show("o2", v.o2, v.o2 < 95);
+  show("bp", `${v.sys}/${v.dia}`);
+  show("resp", v.resp);
+  show("hp", v.hp, v.hp <= 30);
+  show("vstatus", dead ? "NO LIFE" : v.hp <= 30 ? "CRITICAL" : stressed ? "STRESS" : "STABLE", dead || stressed || v.hp <= 30);
 }
 
 // ---------- Tactical map ----------
-// Vector-style display: glowing outlines of the corridors, soldier as a blinking dot.
-const mapCanvas = $("map");
-const mctx = mapCanvas.getContext("2d");
-const MAP_PAD = 16;
-let mapLayer = null; // the colony outline, drawn once
-// redraw once the VT323 font has loaded so the room labels use it
-if (document.fonts) document.fonts.ready.then(() => { mapLayer = null; });
-let mapGeom = null;
-
-// The map and ECG canvases draw at the size they are shown, so they stay sharp whatever the layout.
-function fitCanvas(c, onResize) {
-  const fit = () => {
-    const w = Math.round(c.clientWidth), h = Math.round(c.clientHeight);
-    if (w > 0 && h > 0 && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; onResize(); }
-  };
-  if (window.ResizeObserver) new ResizeObserver(fit).observe(c); else window.addEventListener("resize", fit);
-  fit();
-}
-fitCanvas(mapCanvas, () => { mapLayer = null; });
-fitCanvas(ecg, () => { ecgX = 0; ecgPrevY = ecg.height / 2; });
-
-function buildMapLayer() {
-  const mw = mapCanvas.width;
-  const mh = mapCanvas.height;
-  const grid = world.grid;
-  const rows = grid.length;
-  const cols = grid[0].length;
-  const cell = Math.min((mw - MAP_PAD * 2) / cols, (mh - MAP_PAD * 2) / rows);
-  const ox = (mw - cell * cols) / 2;
-  const oy = (mh - cell * rows) / 2;
-  mapGeom = { cell, ox, oy };
-
-  mapLayer = document.createElement("canvas");
-  mapLayer.width = mw;
-  mapLayer.height = mh;
-  const g = mapLayer.getContext("2d");
-
-  // faint reference grid
-  g.strokeStyle = "rgba(5,182,105,0.08)";
-  g.lineWidth = 1;
-  for (let x = 0; x <= mw; x += mw / 10) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, mh); g.stroke(); }
-  for (let y = 0; y <= mh; y += mh / 8) { g.beginPath(); g.moveTo(0, y); g.lineTo(mw, y); g.stroke(); }
-
-  // corridor outlines: every wall edge that faces open floor
-  const open = (x, y) => y >= 0 && y < rows && x >= 0 && x < cols && grid[y][x] === 0;
-  g.beginPath();
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      if (grid[y][x] !== 1) continue;
-      const x0 = ox + x * cell, y0 = oy + y * cell;
-      const x1 = x0 + cell, y1 = y0 + cell;
-      if (open(x, y - 1)) { g.moveTo(x0, y0); g.lineTo(x1, y0); }
-      if (open(x, y + 1)) { g.moveTo(x0, y1); g.lineTo(x1, y1); }
-      if (open(x - 1, y)) { g.moveTo(x0, y0); g.lineTo(x0, y1); }
-      if (open(x + 1, y)) { g.moveTo(x1, y0); g.lineTo(x1, y1); }
-    }
-  }
-  g.lineCap = "square";
-  // wide soft glow, then a bright core
-  g.strokeStyle = "rgba(5,182,105,0.35)";
-  g.lineWidth = 6;
-  g.shadowColor = "#05b669";
-  g.shadowBlur = 14;
-  g.stroke();
-  g.shadowBlur = 4;
-  g.strokeStyle = "#3fe39a";
-  g.lineWidth = 2;
-  g.stroke();
-
-  // ceiling vents (openings to the ducts): small dim squares
-  g.strokeStyle = "rgba(63,227,154,0.55)";
-  g.lineWidth = 1;
-  for (const [x, y] of world.vents) g.strokeRect(ox + (x + 0.2) * cell, oy + (y + 0.2) * cell, cell * 0.6, cell * 0.6);
-
-  // room labels, like a colony schematic
-  g.shadowBlur = 6;
-  g.fillStyle = "rgba(63,227,154,0.75)";
-  g.font = `${Math.round(cell * 1.7)}px VT323, monospace`;
-  g.textAlign = "left";
-  g.textBaseline = "top";
-  // top-left corner of each room, clear of the consoles and machinery in the middle
-  for (const r of world.rooms) {
-    g.fillText(r.label, ox + (r.x + 0.35) * cell, oy + (r.y + 0.25) * cell);
-  }
-  g.shadowBlur = 0;
-}
-
-// Sonar: every soldier carries one. Every SONAR.period a wave leaves each living soldier (one shared beep) and
-// spreads out to SONAR.range tiles. Hostiles only show as a blip where a wave caught them, fading until the next
-// wave passes. Soldiers are always shown.
-const SONAR = { period: 1000, sweep: 850, fade: 1100, range: 12 }; // ms: between waves, to full range, blip fade; tiles
-const sonarBlips = new Map(); // alien -> { x, y, at }: where and when the wave last caught it
-let sonarWave = -1;           // index of the current wave
-let sonarLastR = 0;
-
-// The exit: the EXIT room outlined, and the hatch in the outer wall
-function drawMission(now, cell, ox, oy) {
-  const pulse = 0.55 + 0.45 * Math.sin(now / 300);
-  const ex = world.exit, door = world.exitDoor;
-  mctx.save();
-  mctx.strokeStyle = mctx.fillStyle = mctx.shadowColor = "#ff6a4a";
-  mctx.shadowBlur = 10;
-  mctx.globalAlpha = 0.5 + 0.4 * pulse;
-  mctx.lineWidth = 2;
-  mctx.setLineDash([4, 3]);
-  mctx.strokeRect(ox + ex.x * cell, oy + ex.y * cell, ex.w * cell, ex.h * cell);
-  mctx.setLineDash([]);
-  mctx.fillRect(ox + door.x * cell, oy + (door.y - 0.5) * cell, cell * 0.6, cell * 2); // the hatch
-  mctx.restore();
-}
-
-function renderMap(now) {
-  mctx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
-  if (!world) return;
-  if (!mapLayer) buildMapLayer();
-
-  // slight brightness wobble like an old vector screen
-  mctx.globalAlpha = 0.88 + Math.random() * 0.12;
-  mctx.drawImage(mapLayer, 0, 0);
-  mctx.globalAlpha = 1;
-
-  const { cell, ox, oy } = mapGeom;
-  mctx.font = `${Math.round(cell * 1.3)}px VT323, monospace`;
-  mctx.textBaseline = "middle";
-  const px = (u) => ox + (u.tx + (u.nx - u.tx) * u.progress + 0.5) * cell; // map position of a moving unit
-  const py = (u) => oy + (u.ty + (u.ny - u.ty) * u.progress + 0.5) * cell;
-  drawMission(now, cell, ox, oy);
-
-  // sonar waves, one from each living soldier
-  const carriers = world.soldiers.map((s, i) => ({ s, i })).filter(({ s }) => !s.dead);
-  const maxR = SONAR.range * cell;
-  const wave = Math.floor(now / SONAR.period);
-  if (wave !== sonarWave) { sonarWave = wave; sonarLastR = 0; if (carriers.length) sound.beep(); }
-  const r = Math.min(1, (now - wave * SONAR.period) / SONAR.sweep) * maxR;
-  if (r < maxR) {
-    mctx.lineWidth = 1.5;
-    mctx.shadowBlur = 6;
-    carriers.forEach(({ s, i }) => {
-      mctx.strokeStyle = mctx.shadowColor = SQUAD[i].color;
-      mctx.globalAlpha = 0.4 * (1 - r / maxR);
-      mctx.beginPath();
-      mctx.arc(px(s), py(s), r, 0, Math.PI * 2);
-      mctx.stroke();
-    });
-    mctx.globalAlpha = 1;
-  }
-  // a wave front caught these hostiles this frame
-  world.aliens.forEach((a) => {
-    if (a.dead) { sonarBlips.delete(a); return; }
-    const ax = ox + (a.x + 0.5) * cell, ay = oy + (a.y + 0.5) * cell;
-    const caught = carriers.some(({ s }) => {
-      const d = Math.hypot(ax - px(s), ay - py(s));
-      return d > sonarLastR && d <= r;
-    });
-    if (caught) sonarBlips.set(a, { x: ax, y: ay, at: now });
-  });
-  sonarLastR = r;
-  // blips: identical white dots where each hostile was caught, fading
-  mctx.fillStyle = mctx.shadowColor = "#ffffff";
-  mctx.shadowBlur = 10;
-  sonarBlips.forEach((b) => {
-    const k = 1 - (now - b.at) / SONAR.fade;
-    if (k <= 0) return;
-    mctx.globalAlpha = k;
-    mctx.beginPath();
-    mctx.arc(b.x, b.y, cell * 0.45, 0, Math.PI * 2);
-    mctx.fill();
-  });
-  mctx.globalAlpha = 1;
-
-  // soldiers: one colour each, always shown; the one on camera has a ring
-  world.soldiers.forEach((s, i) => {
-    if (s.dead) return;
-    const sx = ox + (s.tx + (s.nx - s.tx) * s.progress + 0.5) * cell;
-    const sy = oy + (s.ty + (s.ny - s.ty) * s.progress + 0.5) * cell;
-    const active = i === selected;
-    const color = SQUAD[i].color;
-    mctx.fillStyle = mctx.strokeStyle = mctx.shadowColor = color;
-    mctx.shadowBlur = active ? 16 : 8;
-    mctx.beginPath();
-    mctx.arc(sx, sy, cell * 0.72, 0, Math.PI * 2);
-    mctx.fill();
-    if (active) {
-      mctx.lineWidth = 1.5;
-      mctx.beginPath();
-      mctx.arc(sx, sy, cell * 1.2, 0, Math.PI * 2);
-      mctx.stroke();
-    }
-    mctx.shadowBlur = 4;
-    mctx.fillText(String(s.id), sx + cell * 0.95, sy - cell * 0.85);
-  });
-  mctx.shadowBlur = 0;
-
-  const s = world.soldiers[selected];
-  $("map-coords").textContent = `U${pad(s.id)} X${pad(s.tx)} Y${pad(s.ty)}`;
-}
+const tacMap = createTacticalMap($("map"), { colors: SQUAD.map((u) => u.color), onWave: () => sound.beep() });
 
 // ---------- Comms log ----------
 // Only what is said on the radio: CONTROL (the player), the soldiers and MOTHER (voiced by the AI agent).
 // Game events and order results go to the agent, not here; with no agent linked, radioFallback calls them in.
 const logEl = $("log");
 
-// kind: "ambient" | "alert" | "player" | "soldier" | "mother" | "system"
-function addLog(text, kind = "ambient", who = "") {
+// kind: "alert" | "player" | "soldier" | "mother" | "system"
+function addLog(text, kind, who = "") {
   const li = document.createElement("li");
   li.className = kind;
   const t = document.createElement("span");
@@ -481,67 +268,15 @@ function addLog(text, kind = "ambient", who = "") {
   if (atBottom) logEl.scrollTop = logEl.scrollHeight;
 }
 
-// ---------- Agent link ----------
-// The player's AI agent runs bridge.mjs on their own machine (see agent.html). The browser connects
-// to it on localhost, so this works even when the game page itself comes from a remote server.
-// bridge -> game: Server-Sent Events. game -> bridge: POST.
-const BRIDGE_URL = (new URLSearchParams(location.search).get("bridge") || "http://127.0.0.1:8937").replace(/\/$/, "");
-const agentPill = $("agent-pill");
-const linkBtn = $("link-btn");
-let stream = null;
-let bridgeOpen = false;
-let agentListening = false;
-// The game only reaches for the bridge once the player presses LINK AGENT (connecting to localhost can make the
-// browser ask for permission, which players without an agent shouldn't see). The choice is remembered, so a
-// reload or a mission restart links again by itself; UNLINK forgets it.
-const LINK_KEY = "directive937.agentLink";
-let wantLink = false;
-let retryTimer = null;
-
-function setAgentPill() {
-  agentPill.classList.remove("linked", "listening", "busy");
-  linkBtn.textContent = wantLink ? "UNLINK" : "LINK AGENT";
-  linkBtn.classList.toggle("on", wantLink);
-  linkBtn.title = wantLink ? "Disconnect from your AI agent" : "Connect to your AI agent (start it first: see AGENT SETUP)";
-  if (!wantLink) {
-    agentPill.textContent = "AGENT: OFFLINE";
-  } else if (!bridgeOpen) {
-    agentPill.textContent = "AGENT: CONNECTING";
-    agentPill.classList.add("busy");
-  } else if (agentListening) {
-    agentPill.textContent = "AGENT: STANDING BY";
-    agentPill.classList.add("listening");
-  } else {
-    // linked, but the agent isn't waiting right now (thinking, or its loop isn't running)
-    agentPill.textContent = "AGENT: LINKED";
-    agentPill.classList.add("linked");
-  }
-}
-
-function sendBridge(msg) {
-  if (!bridgeOpen) return;
-  // text/plain keeps it a "simple" request (no CORS preflight); the bridge parses it as JSON
-  fetch(`${BRIDGE_URL}/game/message`, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify(msg),
-  }).catch(() => {});
-}
-
-// Status sent to the agent: every unit's position/orders plus vitals
-function fullStatus() {
-  if (!world) return null;
-  const st = world.status();
-  st.units.forEach((u, i) => {
-    u.vitals = { heart_rate: vitals[i].bpm, spo2: vitals[i].o2, resp: vitals[i].resp };
-  });
-  st.on_camera = SQUAD[selected].id;
-  return st;
+// A radio message (logged, with its transmission burst)
+function say(text, kind, who, unit) {
+  addLog(text, kind, who);
+  sound.radio({ kind, urgent: kind === "soldier" && isUrgent(unit, text) });
 }
 
 // Urgent radio calls (shouted): the soldier just had a hostile event, or the message sounds like an alarm
 const hostileEventAt = new Map(); // unit id -> time of their last hostile-related event
-const HOSTILE_EVENT = /CONTACT|CHARGING|CEILING VENT|MOTION TRACKER|INSTINCT|TAKEN BY|LOST SIGHT|OVERWHELMED/i;
+const HOSTILE_EVENT = /CONTACT|CHARGING|CEILING VENT|MOTION TRACKER|INSTINCT|TAKEN BY|LOST SIGHT|OVERWHELMED|GIANT/i;
 const ALARM_WORDS = /\b(contact|hostiles?|charging|incoming|movement|they'?re|it'?s (coming|in|on)|in the ceiling|run|fall back|get back|help|open fire|fire!|behind (you|us))\b/i;
 function isUrgent(unit, text) {
   return performance.now() - (hostileEventAt.get(unit) ?? -1e9) < 10000 || ALARM_WORDS.test(text);
@@ -560,6 +295,8 @@ const RADIO_CALLS = [
   [/^broke away from the hostiles and is holding in (.*)\./, "I'm clear. Holding in $1."],
   [/^fell back to (.*)\. Holding\./, "Fell back to $1. Holding."],
   [/^killed a hostile in (.*)\./, "Hostile down in $1."],
+  [/^brought down THE GIANT in (.*)!/, "The big one's down! It's dead, in $1!"],
+  [/^HIT BY THE GIANT, health (\d+)\..*/, "It got me! Health $1! Stay out of its reach!"],
   [/^badly wounded, health (\d+)\./, "I'm hit bad! Health $1."],
   [/^arrived at (.*)\. Holding\./, "In position at $1. Holding."],
   [/^reached the furthest point (\w+) it can get to, in (.*)\. Holding\./, "Can't go any further $1. Holding in $2."],
@@ -567,21 +304,22 @@ const RADIO_CALLS = [
   [/^has nowhere to retreat to\. Holding\./, "Nowhere to fall back to. Holding."],
   [/^all-round check done, (.*)\. Back to: (.*)\./, "All around clear: $1. Back to $2."],
   [/^finished inspecting (.*): (.*)\. Holding\./, "$1 checked: $2. Holding."],
+  [/^sealed door (\w+) .*/, "Door $1 sealed. Nothing's getting through there now."],
+  [/^cut door (\w+) open .*/, "Door $1 is open again. Watch it, they can use it too."],
+  [/^has no route to door (\w+)\. Holding\./, "Can't get to door $1. Holding."],
+  [/^stopped at sealed door (\w+) .*/, "Sealed door $1 in the way. Waiting here: it needs cutting open."],
 ];
-function radioFallback(soldier, text) {
-  const say = (t, who, kind, unit) => {
-    addLog(t, kind, who);
-    sound.radio({ kind, urgent: kind === "soldier" && isUrgent(unit, t) });
-  };
-  if (/^(LEVEL COMPLETE|SQUAD LOST)/.test(text)) return; // shown over the camera feed
+function radioFallback(s, text) {
+  if (/^(SECTOR CLEARED|SQUAD LOST|MISSION COMPLETE)/.test(text)) return; // in the log already, or over the camera feed
   if (/ entering .* while /.test(text)) return;        // too frequent to call in
-  if (/No life signs\.$/.test(text) || !soldier || soldier.dead) return say(text, "MOTHER", "mother");
+  // deaths, soldiers leaving through the exit, anything without a soldier able to speak: MOTHER
+  if (!s || s.dead) return say(text, "mother", "MOTHER");
   const body = text.replace(/^Unit \d+ \([^)]*\) /, "");
   const rule = RADIO_CALLS.find(([re]) => re.test(body));
-  say(rule ? body.replace(rule[0], rule[1]) : body, soldier.callsign, "soldier", soldier.id);
+  say(rule ? body.replace(rule[0], rule[1]) : body, "soldier", s.callsign, s.id);
 }
 
-// Who a radio message is from: a unit (number or name) or the ship computer
+// Who a radio message from the agent is from: a unit (number or name) or the ship computer
 function speakerLabel(speaker) {
   const sp = String(speaker || "").trim();
   if (/^(mother|ship|computer)$/i.test(sp)) return { who: "MOTHER", kind: "mother" };
@@ -589,6 +327,56 @@ function speakerLabel(speaker) {
   if (unit) return { who: unit.callsign, kind: "soldier", unit: unit.id };
   return { who: sp ? sp.toUpperCase() : "UNKNOWN", kind: "soldier" };
 }
+
+// ---------- Agent link ----------
+// The player's AI agent runs bridge.mjs on their own machine (see agent.html). The browser connects to it on
+// localhost, so this works even when the game page itself comes from a remote server.
+// bridge -> game: Server-Sent Events. game -> bridge: POST.
+// The game only reaches for the bridge once the player presses LINK AGENT (connecting to localhost can make the
+// browser ask for permission, which players without an agent shouldn't see). The choice is remembered, so a
+// reload links again by itself; UNLINK forgets it.
+const BRIDGE_URL = (new URLSearchParams(location.search).get("bridge") || "http://127.0.0.1:8937").replace(/\/$/, "");
+const LINK_KEY = "directive937.agentLink";
+const agentPill = $("agent-pill");
+const linkBtn = $("link-btn");
+let stream = null;
+let bridgeOpen = false;
+let agentListening = false;
+let wantLink = false;
+let retryTimer = null;
+
+function setAgentPill() {
+  linkBtn.textContent = wantLink ? "UNLINK" : "LINK AGENT";
+  linkBtn.classList.toggle("on", wantLink);
+  linkBtn.title = wantLink ? "Disconnect from your AI agent" : "Connect to your AI agent (start it first: see AGENT SETUP)";
+  // linked but not listening: the agent is thinking, or its loop isn't running
+  const [text, cls] = !wantLink ? ["OFFLINE", ""] : !bridgeOpen ? ["CONNECTING", "busy"]
+    : agentListening ? ["STANDING BY", "listening"] : ["LINKED", "linked"];
+  agentPill.textContent = `AGENT: ${text}`;
+  agentPill.className = `status-pill agent-pill ${cls}`;
+}
+
+function sendBridge(msg) {
+  if (!bridgeOpen) return;
+  // text/plain keeps it a "simple" request (no CORS preflight); the bridge parses it as JSON
+  fetch(`${BRIDGE_URL}/game/message`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify(msg),
+  }).catch(() => {});
+}
+
+// Status sent to the agent: every unit's position, orders and surroundings, plus vitals
+function fullStatus() {
+  if (!world) return null;
+  const st = world.status();
+  st.units.forEach((u, i) => {
+    u.vitals = { heart_rate: vitals[i].bpm, spo2: vitals[i].o2, resp: vitals[i].resp };
+  });
+  st.on_camera = SQUAD[selected].id;
+  return st;
+}
+const sendEvent = (text, unit = null) => sendBridge({ type: "event", unit, text, status: fullStatus() });
 
 function connectBridge() {
   if (!wantLink) return;
@@ -617,16 +405,14 @@ function connectBridge() {
       setAgentPill();
     } else if (msg.type === "radio" && typeof msg.text === "string") {
       const { who, kind, unit } = speakerLabel(msg.speaker);
-      addLog(msg.text, kind, who);
-      // a short, unintelligible transmission burst; shouted when it's about hostiles
-      sound.radio({ kind, urgent: kind === "soldier" && isUrgent(unit, msg.text) });
-
+      say(msg.text, kind, who, unit);
     } else if (msg.type === "order" && world) {
       const results = world.order(msg.unit, msg.action, msg.target);
       sendBridge({ type: "order_result", id: msg.id, results, status: fullStatus() });
     }
   };
 }
+
 function linkAgent(on) {
   wantLink = on;
   try { if (on) localStorage.setItem(LINK_KEY, "1"); else localStorage.removeItem(LINK_KEY); } catch {}
@@ -642,49 +428,16 @@ function linkAgent(on) {
   setAgentPill();
 }
 linkBtn.addEventListener("click", () => linkAgent(!wantLink));
-let linkedBefore = false;
-try { linkedBefore = localStorage.getItem(LINK_KEY) === "1"; } catch {}
-linkAgent(linkedBefore);
-
-if (world) {
-  // Gunfire: loud from the soldier on camera, quieter and duller from the others the further away they are
-  world.onFire = (soldier, times) => {
-    const viewer = world.soldiers[selected];
-    const d = soldier === viewer ? 0 : soldier.camera.position.distanceTo(viewer.camera.position);
-    sound.gunfire(times, {
-      volume: soldier === viewer ? 1 : Math.max(0.06, 0.8 / (1 + d / 4)),
-      muffle: soldier === viewer ? 9000 : Math.max(500, 5000 / (1 + d / 5)),
-    });
-  };
-  world.onEvent = (soldier, text) => {
-    if (soldier && HOSTILE_EVENT.test(text)) hostileEventAt.set(soldier.id, performance.now());
-    // the agent voices events; with no agent linked the soldiers (or MOTHER) call them in themselves
-    if (bridgeOpen) sendBridge({ type: "event", unit: soldier ? soldier.id : null, text, status: fullStatus() });
-    else radioFallback(soldier, text);
-  };
-  // Nobody left inside: the world freezes and the result shows over the camera feed
-  world.onMissionEnd = ({ win, reason }) => {
-    const box = $("mission-end");
-    box.className = `mission-end ${win ? "won" : "lost"}`;
-    $("mission-end-title").textContent = win ? "LEVEL COMPLETE" : "SQUAD LOST";
-    $("mission-end-text").textContent = reason.toUpperCase();
-    box.hidden = false;
-  };
-  $("restart-btn").addEventListener("click", () => location.reload());
-  addLog(`MISSION: ${world.mission.status().objective}`, "system");
-}
 
 // ---------- Comms input ----------
 // No addressee picker: the player names who they talk to ("Frost, check the medlab"), the agent works it out
-
 $("comms-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = $("comms-input");
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
-  addLog(text, "player", "CONTROL");
-  sound.radio({ kind: "player" });
+  say(text, "player", "CONTROL");
   if (!bridgeOpen) {
     addLog(wantLink
       ? "AGENT NOT CONNECTED YET. IS IT RUNNING? SEE AGENT SETUP (TOP BAR)."
@@ -694,27 +447,11 @@ $("comms-form").addEventListener("submit", (e) => {
   sendBridge({ type: "player_message", to: "all", text, status: fullStatus() });
 });
 
-// ---------- Squad list / camera selection ----------
-const rosterEl = $("roster");
-const rosterItems = SQUAD.map((u, i) => {
-  const li = document.createElement("li");
-  li.innerHTML = `<input type="checkbox" class="pick" title="Select for orders"><span>${pad(u.id)}</span><b></b>`;
-  li.style.setProperty("--unit", u.color);
-  li.querySelector("b").textContent = u.callsign;
-  li.title = `${u.name}: tick to give orders`;
-  const pick = li.querySelector(".pick");
-  // the whole chip ticks the box (the camera is picked with the big buttons beside the monitor)
-  li.addEventListener("click", (e) => {
-    if (e.target === pick || pick.disabled) return;
-    pick.checked = !pick.checked;
-    updateSelection();
-  });
-  pick.addEventListener("change", updateSelection);
-  rosterEl.appendChild(li);
-  return li;
-});
-
-// Big buttons beside the monitor: whose helmet camera is on screen
+// ---------- Squad console ----------
+// Big buttons beside the monitor pick whose helmet camera is on screen, and show each soldier's state.
+// Under the biomonitor, a chip per soldier ticks them for orders; the order buttons, the FOLLOW selector and the
+// direction pad then order the ticked soldiers (with none ticked, the one on camera). These are the same orders
+// the agent gives: each one shows in the comms log and is reported to the agent.
 const camButtons = SQUAD.map((u, i) => {
   const b = document.createElement("button");
   b.type = "button";
@@ -728,86 +465,94 @@ const camButtons = SQUAD.map((u, i) => {
   return b;
 });
 
-// How many of the squad are out through the exit, top right of the monitor
-function updateExitCount() {
-  if (!world) return;
-  $("osd-out").textContent = `OUT ${world.mission.out.length}/${SQUAD.length}`;
-}
-
-// How tense things are, for the music: 0 calm .. 1 hostiles on top of the squad.
-// The most stressed soldier, how close the nearest hostile is to anyone (ducts included), any hostile in view.
-function gameTension() {
-  if (!world || world.mission.over) return 0;
-  const squad = world.soldiers.filter((s) => !s.dead);
-  if (!squad.length) return 0;
-  let t = Math.max(...squad.map((s) => s.stress || 0));
-  let nearest = Infinity;
-  for (const a of world.aliens) {
-    if (a.dead) continue;
-    for (const s of squad) {
-      const sx = s.tx + (s.nx - s.tx) * s.progress, sy = s.ty + (s.ny - s.ty) * s.progress;
-      nearest = Math.min(nearest, Math.hypot(a.x - sx, a.y - sy));
-    }
-  }
-  t = Math.max(t, 0.85 * Math.max(0, Math.min(1, 1 - (nearest - 2) / 10)));
-  if (squad.some((s) => s.visible && s.visible.length)) t = Math.max(t, 0.65);
-  return t;
-}
-
-function updateRoster() {
-  rosterItems.forEach((li, i) => {
-    const s = world && world.soldiers[i];
-    const cb = camButtons[i];
-    cb.classList.toggle("active", i === selected);
-    cb.classList.toggle("dead", !!(s && s.dead && !s.exited));
-    cb.classList.toggle("out", !!(s && s.exited));
-    cb.querySelector("em").textContent = s && s.exited ? "EXITED" : s && s.dead ? "NO SIGNAL" : `HP ${s ? s.hp : "--"}`;
-    // how they move (HOLD / SLOW / RUN; nothing at normal pace) and who they follow
-    const live = s && !s.dead;
-    const mode = live ? modeOf(s) : "normal";
-    const modeTag = cb.querySelector(".cs-mode");
-    modeTag.textContent = mode === "normal" ? "" : mode.toUpperCase();
-    modeTag.dataset.mode = mode;
-    const leaderIdx = live && s.leader ? world.soldiers.indexOf(s.leader) : -1;
-    cb.querySelector(".cs-fol").textContent = leaderIdx >= 0 ? `FOL ${SQUAD[leaderIdx].callsign}` : "";
-    const pick = li.querySelector(".pick");
-    if (s && s.dead && !pick.disabled) { pick.checked = false; pick.disabled = true; }
+const picks = SQUAD.map((u) => {
+  const li = document.createElement("li");
+  li.innerHTML = `<input type="checkbox" class="pick" title="Select for orders"><span>${pad(u.id)}</span><b></b>`;
+  li.style.setProperty("--unit", u.color);
+  li.querySelector("b").textContent = u.callsign;
+  li.title = `${u.name}: tick to give orders`;
+  const pick = li.querySelector(".pick");
+  li.addEventListener("click", (e) => { // the whole chip ticks the box
+    if (e.target === pick || pick.disabled) return;
+    pick.checked = !pick.checked;
+    updateSelection();
   });
-  updateSelection();
-}
+  pick.addEventListener("change", updateSelection);
+  $("roster").appendChild(li);
+  return pick;
+});
+const selAll = $("sel-all");
+const followSel = $("go-follow");
+const orderButtons = [...document.querySelectorAll("#group-orders button")];
 
-// Who a soldier follows, from the FOLLOW selector in the orders bar. "" = nobody: they stop and hold until given an order.
-// A follower goes wherever their leader is, however far (running to catch up), unless there's no way through.
-function setLeader(i, leader) {
-  if (!world || world.mission.over || world.soldiers[i].dead) return;
-  const s = world.soldiers[i];
-  heldFrom.delete(s); // a HOLD let go later doesn't send them back to an old leader
-  const L = leader === "" ? null : SQUAD[+leader];
-  const results = L ? world.order(String(s.id), "follow", String(L.id)) : world.order(String(s.id), "hold");
-  const what = L ? `follow ${L.callsign}` : "stop following, hold position";
-  if (!results.every((r) => r.ok)) { // e.g. that soldier is already following this one
-    addLog(`${s.callsign}: ${results.map((r) => r.detail).join(" ")}`, "alert");
-    updateRoster();
-    return;
-  }
-  addLog(`${s.callsign}: ${what.toUpperCase()}`, "player", "CONTROL");
-  sound.radio({ kind: "player" });
-  updateRoster();
-  sendBridge({
-    type: "event", unit: s.id, status: fullStatus(),
-    text: `CONTROL used the console: ${s.callsign} ${what} (${results.map((r) => r.detail).join(" ")}).`,
-  });
-}
-
-// ---------- HOLD / SLOW / RUN ----------
-// One at a time: holding, moving slow or running. None lit = moving at normal pace (the default).
-// Pressing the lit one goes back to that default; HOLD let go = carry on, or rejoin the soldier they followed.
-// HOLD lights only on a soldier told to hold: their followers stop behind them too, but are still "following".
+// HOLD / SLOW / RUN: one at a time; none lit = moving at normal pace (the default). Pressing the lit one goes back
+// to that default; HOLD let go = carry on, or rejoin the soldier they followed. HOLD lights only on a soldier told
+// to hold: their followers stop behind them too, but are still "following".
+const MODES = ["hold", "slow", "run"];
 function modeOf(s) {
   if (s.task.kind === "hold") return "hold";
   return s.orders.pace === "slow" ? "slow" : s.orders.pace === "fast" ? "run" : "normal";
 }
 const heldFrom = new Map(); // soldier -> the leader they were following before HOLD (to rejoin after)
+
+// Who the console orders: the ticked soldiers, or with none ticked the one on camera
+const pickedIdx = () => picks.map((p, i) => (p.checked && !p.disabled ? i : -1)).filter((i) => i >= 0);
+const targetIdx = () => {
+  const idx = pickedIdx();
+  return idx.length ? idx : inPlay(selected) ? [selected] : [];
+};
+// the mode every one of these soldiers is in, or null if they differ
+const sharedMode = (idx) => {
+  const modes = new Set(idx.map((i) => modeOf(world.soldiers[i])));
+  return modes.size === 1 ? [...modes][0] : null;
+};
+
+function updateSelection() {
+  const live = picks.filter((p) => !p.disabled);
+  const n = pickedIdx().length;
+  selAll.checked = live.length > 0 && n === live.length;
+  selAll.indeterminate = n > 0 && n < live.length;
+  const idx = targetIdx();
+  $("sel-count").textContent = n === 0 ? (idx.length ? `${SQUAD[selected].callsign} (ON CAMERA)` : "NOBODY")
+    : n === live.length ? "ALL SELECTED" : `${n} SELECTED`;
+  const off = !world || !idx.length || world.mission.over;
+  orderButtons.forEach((b) => { b.disabled = off; });
+  followSel.disabled = off;
+  // HOLD / SLOW / RUN light up while every one of them is in that mode (whoever gave the order: buttons or agent)
+  const mode = off ? null : sharedMode(idx);
+  orderButtons.forEach((b) => b.classList.toggle("on", MODES.includes(b.dataset.act) && b.dataset.act === mode));
+  if (!off) updateSealButton(idx);
+  for (const o of followSel.options) if (o.value !== "-" && o.value !== "") o.disabled = !inPlay(+o.value);
+}
+
+// The camera buttons and chips follow each soldier's state
+function updateSquad() {
+  if (world) SQUAD.forEach((u, i) => {
+    const s = world.soldiers[i];
+    const cb = camButtons[i];
+    cb.classList.toggle("active", i === selected);
+    cb.classList.toggle("dead", s.dead && !s.exited);
+    cb.classList.toggle("out", !!s.exited);
+    cb.querySelector("em").textContent = s.exited ? "EXITED" : s.dead ? "NO SIGNAL" : `HP ${s.hp}`;
+    // how they move (HOLD / SLOW / RUN; nothing at normal pace) and who they follow
+    const job = !s.dead && s.task.kind === "seal" ? s.task : null; // welding a door shut, or cutting one open
+    const mode = s.dead ? "normal" : job ? "weld" : modeOf(s);
+    const modeTag = cb.querySelector(".cs-mode");
+    modeTag.textContent = job ? (job.cut ? `CUT ${Math.round((1 - job.door.seal) * 100)}%` : `WELD ${Math.round(job.door.seal * 100)}%`)
+      : mode === "normal" ? "" : mode.toUpperCase();
+    modeTag.dataset.mode = mode;
+    cb.querySelector(".cs-fol").textContent = !s.dead && s.leader ? `FOL ${s.leader.callsign}` : "";
+    if (s.dead && !picks[i].disabled) { picks[i].checked = false; picks[i].disabled = true; }
+  });
+  updateSelection();
+}
+
+// What CONTROL did on the console: in the comms log, a radio burst, and an event for the agent
+function reportConsole(who, what, results, unit = null) {
+  say(`${who}: ${what.toUpperCase()}`, "player", "CONTROL");
+  updateSquad();
+  sendEvent(`CONTROL used the console: ${who} ${what} (${results.map((r) => `${r.name || ""} ${r.detail}`.trim()).join(" ")}).`, unit);
+}
 
 // Puts the soldiers in one mode ("hold" | "slow" | "run" | "normal"). Returns [what CONTROL said, results].
 function setMode(units, mode) {
@@ -835,100 +580,85 @@ function setMode(units, mode) {
   return [what, results];
 }
 
-// ---------- Group orders ----------
-// The ticked soldiers (or, with none ticked, the one on the monitor) get the orders from the buttons,
-// the FOLLOW selector and the direction pad under the squad list.
-// Same orders the agent gives; each one shows in the comms log and is reported to the agent.
-const selAll = $("sel-all");
-const picks = rosterItems.map((li) => li.querySelector(".pick"));
-const pickedIdx = () => picks.map((p, i) => (p.checked && !p.disabled ? i : -1)).filter((i) => i >= 0);
-// who the buttons order: the ticked soldiers, or with none ticked the soldier on the monitor
-const targetIdx = () => {
-  const idx = pickedIdx();
-  if (idx.length) return idx;
-  return world && !world.soldiers[selected].dead ? [selected] : [];
-};
-const MODES = ["hold", "slow", "run"];
-// the mode every one of these soldiers is in, or null if they differ
-const sharedMode = (idx) => {
-  const modes = new Set(idx.map((i) => modeOf(world.soldiers[i])));
-  return modes.size === 1 ? [...modes][0] : null;
+// act -> [what CONTROL says, the world order] (HOLD / SLOW / RUN go through setMode)
+const GROUP_ORDERS = {
+  alert: ["alert, look all around", "alert"],
+  getout: ["get out of there, to the nearest corridor", "getout"],
+  north: ["head north", "north"],
+  south: ["head south", "south"],
+  east: ["head east", "east"],
+  west: ["head west", "west"],
 };
 
-function updateSelection() {
-  const live = picks.filter((p) => !p.disabled);
-  const n = pickedIdx().length;
-  selAll.checked = live.length > 0 && n === live.length;
-  selAll.indeterminate = n > 0 && n < live.length;
-  const idx = targetIdx();
-  $("sel-count").textContent = n === 0 ? (idx.length ? `${SQUAD[selected].callsign} (ON CAMERA)` : "NOBODY")
-    : n === live.length ? "ALL SELECTED" : `${n} SELECTED`;
-  const off = !idx.length || !world || world.mission.over;
-  document.querySelectorAll("#group-orders button").forEach((b) => { b.disabled = off; });
-  followSel.disabled = off;
-  // HOLD / SLOW / RUN light up while every one of them is in that mode (whoever gave the order: buttons or agent)
-  const mode = off ? null : sharedMode(idx.filter((i) => !world.soldiers[i].dead));
-  document.querySelectorAll("#group-orders .go-buttons button, #group-orders .dpad .c").forEach((b) => {
-    b.classList.toggle("on", MODES.includes(b.dataset.act) && b.dataset.act === mode);
-  });
-  for (const o of followSel.options) if (o.value !== "-" && o.value !== "") o.disabled = !world || world.soldiers[+o.value].dead;
+// SEAL / UNSEAL is one soldier's job: the one on camera if they're among the ordered, else the first group
+// leader among them, else the first of them. It works on the door nearest that soldier: a sealed one gets cut
+// open, any other gets welded. Returns { i, door, job } (door null: no door they can reach).
+function doorJob(idx) {
+  const leaders = idx.filter((i) => { const L = world.soldiers[i].leader; return !L || !idx.includes(world.soldiers.indexOf(L)); });
+  const i = idx.includes(selected) ? selected : (leaders[0] ?? idx[0]);
+  const door = world.nearestDoor(i);
+  return { i, door, job: door && door.sealed ? "unseal" : "seal" };
 }
-// FOLLOW selector: a one-shot order, it goes back to its label once used
-const followSel = $("go-follow");
+const sealBtn = document.querySelector('#group-orders [data-act="seal"]');
+function updateSealButton(idx) {
+  const { door, job } = idx.length ? doorJob(idx) : { door: null, job: "seal" };
+  sealBtn.title = door ? `${job === "seal" ? "Weld" : "Cut open"} door ${door.id} (${door.where}), the nearest one: ` +
+    `${job === "seal" ? "20" : "15"} s, one soldier (the one on camera if ticked, else a group leader)` : "No door within reach";
+  if (!door) sealBtn.disabled = true;
+}
+
+function groupOrder(act) {
+  if (!world || world.mission.over) return;
+  let idx = targetIdx();
+  if (!idx.length) return;
+  let what, results;
+  if (act === "seal") {
+    const { i, door, job } = doorJob(idx);
+    if (!door) return;
+    idx = [i];
+    what = `${job} door ${door.id}`;
+    results = world.order(String(SQUAD[i].id), job, door.id);
+  } else if (MODES.includes(act)) {
+    [what, results] = setMode(idx.map((i) => world.soldiers[i]), sharedMode(idx) === act ? "normal" : act);
+  } else {
+    [what] = GROUP_ORDERS[act];
+    results = world.order(idx.map((i) => String(SQUAD[i].id)).join(","), GROUP_ORDERS[act][1]);
+  }
+  const live = SQUAD.filter((u, i) => inPlay(i)).length;
+  const who = idx.length === live && live > 1 ? "ALL" : idx.map((i) => SQUAD[i].callsign).join(", ");
+  reportConsole(who, what, results, idx.length === 1 ? SQUAD[idx[0]].id : null);
+}
+
+// Who a soldier follows, from the FOLLOW selector. "" = nobody: they stop and hold until given an order.
+// A follower goes wherever their leader is, however far (running to catch up), unless there's no way through.
+function setLeader(i, leader) {
+  if (!world || world.mission.over || !inPlay(i)) return;
+  const s = world.soldiers[i];
+  heldFrom.delete(s); // a HOLD let go later doesn't send them back to an old leader
+  const L = leader === "" ? null : SQUAD[+leader];
+  const results = L ? world.order(String(s.id), "follow", String(L.id)) : world.order(String(s.id), "hold");
+  if (!results.every((r) => r.ok)) { // e.g. that soldier is already following this one
+    addLog(`${s.callsign}: ${results.map((r) => r.detail).join(" ")}`, "alert");
+    return updateSquad();
+  }
+  reportConsole(s.callsign, L ? `follow ${L.callsign}` : "stop following, hold position", results, s.id);
+}
+
 followSel.innerHTML = `<option value="-">FOLLOW…</option><option value="">FOLLOW NOBODY</option>` +
   SQUAD.map((o, k) => `<option value="${k}">FOLLOW ${o.callsign}</option>`).join("");
-followSel.addEventListener("change", () => {
+followSel.addEventListener("change", () => { // a one-shot order: it goes back to its label once used
   const v = followSel.value;
   followSel.value = "-";
-  if (v === "-") return;
-  targetIdx().forEach((i) => { if (String(i) !== v) setLeader(i, v); });
+  if (v !== "-") targetIdx().forEach((i) => { if (String(i) !== v) setLeader(i, v); });
 });
 selAll.addEventListener("change", () => {
   picks.forEach((p) => { if (!p.disabled) p.checked = selAll.checked; });
   updateSelection();
 });
-document.querySelectorAll("#group-orders button").forEach((btn) =>
-  btn.addEventListener("click", () => groupOrder(btn.dataset.act)));
+orderButtons.forEach((btn) => btn.addEventListener("click", () => groupOrder(btn.dataset.act)));
 
-// act -> what CONTROL says, and the world orders it takes (HOLD / SLOW / RUN go through setMode)
-const GROUP_ORDERS = {
-  alert: ["alert, look all around", [["alert"]]],
-  inspect: ["inspect the room", [["inspect"]]],
-  retreat: ["fall back", [["retreat"]]],
-  together: ["regroup", [["together"]]],
-  spread: ["spread out", [["spread"]]],
-  north: ["head north", [["north"]]],
-  south: ["head south", [["south"]]],
-  east: ["head east", [["east"]]],
-  west: ["head west", [["west"]]],
-};
-
-function groupOrder(act, picked = targetIdx()) {
-  if (!world || world.mission.over) return;
-  const idx = picked.filter((i) => !world.soldiers[i].dead);
-  if (!idx.length) return;
-  let what, results = [];
-  if (MODES.includes(act)) {
-    [what, results] = setMode(idx.map((i) => world.soldiers[i]), sharedMode(idx) === act ? "normal" : act);
-  } else {
-    let steps;
-    [what, steps] = GROUP_ORDERS[act];
-    const ids = idx.map((i) => String(SQUAD[i].id)).join(",");
-    for (const [action, arg] of steps) results.push(...world.order(ids, action, arg));
-  }
-  const live = world.soldiers.filter((s) => !s.dead).length;
-  const who = idx.length === live && live > 1 ? "ALL" : idx.map((i) => SQUAD[i].callsign).join(", ");
-  addLog(`${who}: ${what.toUpperCase()}`, "player", "CONTROL");
-  sound.radio({ kind: "player" });
-  updateRoster();
-  sendBridge({
-    type: "event", unit: idx.length === 1 ? SQUAD[idx[0]].id : null, status: fullStatus(),
-    text: `CONTROL used the console: ${who} ${what} (${results.map((r) => `${r.name || ""} ${r.detail}`.trim()).join(" ")}).`,
-  });
-}
-
-function selectUnit(i) {
-  if (i === selected && switchUntil) return;
+function selectUnit(i, force = false) {
+  if (i === selected && !force) return;
   selected = i;
   const u = SQUAD[i];
   $("soldier-name").textContent = u.name;
@@ -937,54 +667,174 @@ function selectUnit(i) {
   $("vitals-title").textContent = `UNIT ${pad(u.id)}`;
   $("cam-title").firstChild.textContent = `HELMET CAM // UNIT ${pad(u.id)} `;
   switchUntil = performance.now() + 350;
-  updateRoster();
-  updateExitCount();
+  updateSquad();
   updateVitals();
 }
-selectUnit(0);
 
-// ---------- Ticker ----------
+// ---------- Sectors ----------
+// The squad moves across the sectors of the world map (sectors.js), one at a time. Whoever goes through an access
+// arrives in the neighbouring sector, at the matching access, with the health they had; the others are lost for
+// the rest of the mission. A restart plays the sector again with the squad that came into it.
+
+// Build the world for a sector and reset everything that belongs to it. from: the access (direction) the squad
+// comes in through, null at the entry. carry: who comes in, as above.
+function startSector([sx, sy], from = null, carry = null) {
+  if (world) world.dispose();
+  atSector = { sector: [sx, sy], from };
+  entry = carry;
+  const level = sectorLevel(sx, sy, from);
+  $("level-name").textContent = level.name;
+  try {
+    world = window.THREE ? createWorld(W, H, SQUAD, level, carry) : null;
+  } catch (err) { // e.g. no WebGL: the monitors show static only
+    console.error("3D world not available:", err);
+    world = null;
+  }
+  levelStart = performance.now();
+  levelEnd = null;
+  vitals = newVitals();
+  heldFrom.clear();
+  picks.forEach((p) => { p.checked = false; p.disabled = false; });
+  $("mission-end").hidden = true;
+  tacMap.setWorld(world);
+  selectUnit(Math.max(0, world ? world.soldiers.findIndex((s) => !s.dead) : 0), true); // someone who's here
+  if (!world) return;
+
+  // Gunfire: loud from the soldier on camera, quieter and duller from the others the further away they are
+  world.onFire = (s, times) => {
+    const viewer = world.soldiers[selected];
+    const d = s === viewer ? 0 : s.camera.position.distanceTo(viewer.camera.position);
+    sound.gunfire(times, {
+      volume: s === viewer ? 1 : Math.max(0.06, 0.8 / (1 + d / 4)),
+      muffle: s === viewer ? 9000 : Math.max(500, 5000 / (1 + d / 5)),
+    });
+  };
+  // The agent voices events; with no agent linked the soldiers (or MOTHER) call them in themselves
+  world.onEvent = (s, text) => {
+    if (s && HOSTILE_EVENT.test(text)) hostileEventAt.set(s.id, performance.now());
+    if (bridgeOpen) sendEvent(text, s ? s.id : null);
+    else radioFallback(s, text);
+  };
+  world.onMissionEnd = endSector;
+
+  const objective = world.mission.status().objective;
+  const lost = world.soldiers.filter((s) => s.dead).map((s) => s.callsign);
+  const squad = `${world.mission.total} of ${SQUAD.length} in the squad${lost.length ? ` (lost earlier: ${lost.join(", ")})` : ""}.`;
+  addLog(`${level.name}. ${level.briefing} ${objective}`, "system");
+  sendEvent(`New sector: ${level.name}. ${level.briefing} ${squad} They are ${level.start ? `in the ${level.start}` : "in a corridor"}. ${objective} ` +
+    "The map is new: see colony_map, doors and mission.accesses in the status.");
+}
+
+// Nobody left inside. Through an access: straight on to that sector, arriving at its matching access (the camera
+// switching channel is the only pause). Everyone dead: the world freezes and SQUAD LOST shows over the camera feed.
+function endSector({ win, victory, reason, exit }) {
+  levelEnd = performance.now();
+  if (victory) { // THE GIANT is dead: the mission is won
+    $("mission-end").className = "mission-end won";
+    $("mission-end-title").textContent = "MISSION COMPLETE";
+    $("mission-end-text").textContent = reason.toUpperCase();
+    $("restart-btn").hidden = true;
+    $("new-btn").hidden = false;
+    $("mission-end").hidden = false;
+    return;
+  }
+  if (win) {
+    const carry = world.soldiers.map((s) => ({ alive: !!s.exited, hp: s.hp }));
+    addLog(reason, "system");
+    // after this frame's world update has finished with the old world
+    setTimeout(() => startSector(exit.to, DIR[exit.dir].back, carry), 0);
+    return;
+  }
+  $("mission-end").className = "mission-end lost";
+  $("restart-btn").hidden = false;
+  $("mission-end-title").textContent = "SQUAD LOST";
+  $("mission-end-text").textContent = reason.toUpperCase();
+  $("new-btn").hidden = !entry; // lost beyond the entry sector: offer to start over
+  $("mission-end").hidden = false;
+}
+$("restart-btn").addEventListener("click", () => startSector(atSector.sector, atSector.from, entry));
+$("new-btn").addEventListener("click", () => startSector(SECTORS.entry));
+
+// The whole complex, as a paper map (papermap.js)
+const paperMap = createPaperMap($("paper-map"), { currentSector: () => atSector.sector });
+$("map-btn").addEventListener("click", () => paperMap.open());
+
+// ---------- Main loop ----------
 $("ticker").textContent =
   "▲ ALL STATIONS REPORT ▲ HULL SEALS VERIFIED ▲ EXTERIOR TEMP -164C ▲ " +
   "SURFACE WIND 120 KPH ▲ CREW EXPENDABLE CLAUSE ACTIVE ▲ AWAIT FURTHER INSTRUCTIONS ▲";
 
-// ---------- Main loop ----------
-let lastFrame = 0;
-let lastFeed = 0;
-let lastSlow = -Infinity;
-let lastExitCount = 0;
+// How tense things are, for the music: 0 calm .. 1 hostiles on top of the squad.
+// The most stressed soldier, how close the nearest hostile is to anyone (ducts included), any hostile in view.
+function gameTension() {
+  if (!world || world.mission.over) return 0;
+  const squad = world.soldiers.filter((s) => !s.dead);
+  if (!squad.length) return 0;
+  let t = Math.max(...squad.map((s) => s.stress || 0));
+  let nearest = Infinity;
+  for (const a of world.aliens) {
+    if (a.dead) continue;
+    for (const s of squad) {
+      const [sx, sy] = unitPos(s);
+      nearest = Math.min(nearest, Math.hypot(a.x - sx, a.y - sy));
+    }
+  }
+  t = Math.max(t, 0.85 * clamp(1 - (nearest - 2) / 10, 0, 1));
+  if (squad.some((s) => s.visible.length)) t = Math.max(t, 0.65);
+  return t;
+}
 
+let lastFrame = 0, lastFeed = 0, lastQuarter = 0, lastSecond = -Infinity;
+let lastError = "";
+// The next frame is asked for first, and an error in one frame is reported rather than stopping the game for good
 function loop(now) {
+  requestAnimationFrame(loop);
+  try {
+    frame(now);
+  } catch (err) {
+    console.error(err);
+    const msg = String(err && err.message || err);
+    if (msg !== lastError) { lastError = msg; addLog(`SYSTEM ERROR: ${msg} (see the browser console)`, "alert"); }
+  }
+}
+
+function frame(now) {
   const dt = lastFrame ? now - lastFrame : 16;
   lastFrame = now;
 
-  // ~30 fps for the analog feed
-  if (now - lastFeed > 33) {
+  // clamp so a backgrounded tab doesn't teleport the soldiers
+  if (world && !world.mission.over) world.update(Math.min(dt, 100) / 1000);
+  if (now - lastFeed > 33) { // ~30 fps for the analog feed
+    lastFeed = now;
     renderFeed(now);
     renderVitalsNoise(now);
-    lastFeed = now;
   }
-  if (now - lastExitCount > 250) {
-    lastExitCount = now;
-    updateExitCount();
+  renderEcg(dt);
+  tacMap.draw(now, selected);
+  $("mission-time").textContent = formatHMS(((levelEnd ?? now) - levelStart) / 1000);
+  if (world) {
+    const s = world.soldiers[selected];
+    $("map-coords").textContent = `U${pad(s.id)} X${pad(s.tx)} Y${pad(s.ty)}`;
+  }
+
+  if (now - lastQuarter > 250) {
+    lastQuarter = now;
+    if (world) $("osd-out").textContent = `OUT ${world.mission.out.length}/${world.mission.total}`;
     sound.setTension(gameTension());
   }
-  // clamp so a backgrounded tab doesn't teleport the soldier
-  if (world && !world.mission.over) world.update(Math.min(dt, 100) / 1000);
-  renderEcg(dt);
-  renderMap(now);
-
-  $("mission-time").textContent = formatHMS((now - missionStart) / 1000);
-
-  if (now - lastSlow > 1000) {
-    lastSlow = now;
+  if (now - lastSecond > 1000) {
+    lastSecond = now;
     const d = new Date();
     $("ship-clock").textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     updateVitals();
-    updateRoster();
+    updateSquad();
     sendBridge({ type: "status", status: fullStatus() });
   }
-  requestAnimationFrame(loop);
 }
 
+// ---------- Start ----------
+let linkedBefore = false;
+try { linkedBefore = localStorage.getItem(LINK_KEY) === "1"; } catch {}
+linkAgent(linkedBefore);
+startSector(SECTORS.entry);
 requestAnimationFrame(loop);

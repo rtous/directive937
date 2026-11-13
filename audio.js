@@ -400,18 +400,16 @@ function createStaticAudio() {
       tone.start(t);
       tone.stop(t + 0.3);
     },
-    // Called every feed frame with the current interference state
-    update({ burst, tearing, crackle }) {
+    // Called every feed frame with the current interference state. burst: heavy snow (no signal, switching).
+    update({ burst, crackle }) {
       if (!ctx || !enabled) return;
       const t = ctx.currentTime;
-      const hiss = burst ? 0.45 : tearing ? 0.16 : 0.07 + Math.random() * 0.02;
-      noiseGain.gain.setTargetAtTime(hiss, t, burst ? 0.02 : 0.08);
+      noiseGain.gain.setTargetAtTime(burst ? 0.45 : 0.07 + Math.random() * 0.02, t, burst ? 0.02 : 0.08);
       if (crackle) {
         crackleGain.gain.cancelScheduledValues(t);
         crackleGain.gain.setValueAtTime(0.25 + Math.random() * 0.35, t);
         crackleGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.03 + Math.random() * 0.05);
       }
-      humGain.gain.setTargetAtTime(tearing ? 0.06 : 0.025, t, 0.05);
     },
   };
 }

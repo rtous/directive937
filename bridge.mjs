@@ -40,6 +40,9 @@ const ORDERS = `  who: 1-4, a soldier's name, alpha / bravo (teams after a split
     inspect [room]              check a room (default: the current/nearest) spot by spot, then hold
     retreat [room]              run from known hostiles (or to a room), then hold
     follow <unit>               follow another soldier
+    getout                      each one stops following anyone and runs to the nearest corridor, then holds
+    seal [door]                 weld a door shut (D1.., a room, x y, or the nearest): 20 s, one soldier
+    unseal [door]               cut a sealed door open again (also: unweld, cut): 15 s, one soldier
     continue                    resume the previous task
   SQUAD SHAPE
     together                    the named units regroup behind the lowest-numbered one

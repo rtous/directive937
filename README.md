@@ -29,14 +29,69 @@ agent commands with a token stored in `~/.directive937/`. Starting the bridge re
 Optional MCP version (same protocol, tools instead of commands):
 `cd bridge && npm install && claude mcp add directive937 -e DIRECTIVE937_ORIGINS=https://your-game-server -- node /full/path/bridge/index.js`
 
-## Mission
+## The complex: sectors and accesses
 
-The squad comes in through the AIRLOCK and has to get out through the EXIT (`mission.js`): a small room off the
-east side of the LIVING QUARTERS, with a hatch in the colony's outer wall (marked on the map and with red arrows
-on its floor). A soldier who steps into the EXIT room goes through the hatch and leaves the level, out of play.
-The camera monitor shows how many are out (`OUT 1/4`). Once nobody is left inside the game freezes and the result
-shows over the camera feed, with a restart button: LEVEL COMPLETE if at least one soldier made it out, SQUAD LOST
-if they all died. (The exit will later lead on to the next map.)
+The colony complex is a big square map of 8 x 8 sectors (`sectors.js`): A1 to H8, letter = column (west to
+east), number = row (north to south). The squad plays one sector at a time, shown on the tactical map. Each
+sector is generated from a fixed seed (the same complex every game, the same sector every visit): nine rooms on a
+3 x 3 layout joined by corridors, doors (some starting sealed, never cutting anything off), vents, red lights,
+steam or smoke. Sectors are linked by ACCESSES: a small room at the middle of a sector edge with a hatch (its sign
+shows the sector it leads to), matching an access at the same spot of the neighbour's edge. Not every pair of
+neighbours is linked (a maze over the grid, plus a few extra links); the outer edge of the complex has no
+accesses, only the ENTRY on the south edge of D8, where the squad first comes in. Sectors further from the entry
+get tenser: the hostiles come down sooner and multiply faster.
+
+A soldier who steps into an access room goes through its hatch and leaves the sector. The first one through picks
+the way for everyone: the other accesses close (crossed out on the tactical map), and the rest of the squad has to
+follow through the same one. Patrols, inspections, spreading out, retreats and panic keep out of access rooms, so
+nobody leaves by accident: only a deliberate order takes a soldier through: `goto` an access (`goto east access`,
+or `goto exit` for the one the squad is leaving through or else the nearest), a grid position inside one, or a
+direction (the console's direction pad included) that ends in one. A group following its leader goes through
+with them. The monitor shows how many are through (`OUT 1/4`). Once nobody is left inside, if at least one soldier went through, the next sector starts straight away: the squad
+arrives next to the matching access, with the health they had. If they all died, the game freezes and SQUAD LOST
+shows over the camera feed: RESTART SECTOR plays the sector again with the squad that came into it, NEW MISSION
+starts over at the entry with the whole squad. Soldiers lost in one sector stay lost (their camera shows NO
+SIGNAL). The goal: kill THE GIANT in THE NEST, sector H1. That wins the mission: the game freezes and MISSION COMPLETE shows over the camera feed, with NEW MISSION to start over from the entry.
+
+⤢ FULL MAP, beside the tactical map, opens the whole complex full screen as a paper map (`papermap.js`): black,
+thin white lines, the sector grid and labels, the accesses and the entry; the only thing laid over it is the
+sector the squad is in now: no soldiers, hostiles or door states. Esc or ✕ CLOSE closes it.
+
+## Doors
+
+Sliding doors sit in some corridors and room doorways (`doors.js`, placed in `levels.js`; some start sealed: D5, D6 and D8 in the colony), numbered D1, D2... on
+the doors themselves, on the tactical map and in the agent's status. Soldiers and hostiles alike open one by
+walking into it (they wait a moment while it slides open); it closes again a few seconds after nobody is in the
+doorway. Nobody sees or shoots through a closed door.
+
+SEAL welds a door shut: it doesn't open for hostiles or the squad, so it's the way to cut hostiles off from part
+of the colony. Hostiles plan around sealed doors, and so do the soldiers' own moves (patrols, inspections,
+retreats, panic, pursuit, spreading out). On a direct order (`goto`, or a direction, the pad included) a soldier
+plans straight through a sealed door instead, and stops in front of it, reporting it once ("stopped at sealed door
+D3 … order unseal to cut through"); once it's cut open they carry on by themselves. UNSEAL cuts through the weld (15 s; the seam shrinks back down
+under the same sparks) and the door works normally again, for everyone. The weld is gradual both ways: a half-cut
+door is still sealed and can be welded back up from where it was.
+It's one soldier's job: from the console, the one on camera if they're among the ticked, else the first group
+leader, else the first of them; from the agent, a group leader among those named. The console button works on the
+door nearest that soldier, `SEAL/UNSEAL DOOR`: it welds that door, or cuts it open if it's sealed (the tooltip says which door and what it will do). The
+soldier walks to the door (the agent can name one: `D3`, a room, or `x y`), closes it, and works standing in front
+of it: sparks pour off a glowing seam that climbs the door (shrinks, when cutting), under a flickering arc. Having
+to fight pauses the work; it carries on from where it was. The camera button shows `WELD nn%` or `CUT nn%`.
+
+## Level format
+
+A sector is a "level": plain data in the format described at the top of `levels.js` (grid size, rooms with name,
+map label, aliases, interior, light colour, description for the agent and wall style; corridors, solid blocks,
+doors, fog, vents, red lights, start room and tiles, exits with their hatch tiles, a briefing, optional overrides
+of the hostiles' release schedule). `generateSector` in `sectors.js` produces them; `sectorLevel` adds where the
+squad starts, depending on the access it came in through. `HANDMADE_LEVELS` in `levels.js` are the two hand-made
+maps from before the complex (COLONY OUTPOST, REACTOR DECK): not in play, since they don't follow the sectors'
+layout of accesses, kept as examples. `node tools/check-levels.js` checks every sector from every way in, and the
+hand-made levels: rooms that touch, doors outside 1-wide passages, misplaced lights, vents, start tiles or hatches,
+links that don't match on both sides, and that every room and access can be reached from the start with the
+doors that start sealed (`-v` prints each sector). `createWorld(width, height, squad, level, carry)` builds any
+level; `startSector(sector, from, carry)` in `main.js` swaps worlds (disposing the old one). Models and
+animations load once per page (`models.js`) and are reused by every world.
 
 ## Soldier behavior
 
@@ -50,7 +105,7 @@ Soldiers decide for themselves about 10 times a second (`behavior.js`), in three
 
 Orders (`order <who> <order> [argument]`, who = `1-4`, a name, `alpha`/`bravo`, `all` or `1,3`):
 
-- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `alert` (stop and look all around for 5 s, then carry on; followers stay in their group) · `inspect [room]` (walk to a few spots across the room, by default the one they're in or the nearest, look around at each, report and hold) · `retreat [room]` · `follow <unit>` · `continue`
+- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `alert` (stop and look all around for 5 s, then carry on; followers stay in their group) · `inspect [room]` (walk to a few spots across the room, by default the one they're in or the nearest, look around at each, report and hold) · `retreat [room]` · `getout` (each runs to the nearest corridor, on their own, and holds) · `follow <unit>` · `seal [door]` (weld a door shut: `D3`, a room, `x y` or the nearest; one soldier, 20 s) · `unseal [door]` (cut it open again; also `unweld`, `cut`; 15 s) · `continue`
 - **Squad shape**: `together` (regroup behind the lowest-numbered unit) · `split` (ALPHA = 1+2, BRAVO = 3+4) · `spread` (fan out across the room and act independently)
 - **Standing orders**: `pace slow|normal|fast` · `fire free|hold` · `contact engage|hold|retreat` (what to do on seeing a hostile) · `pursue on|off` · `watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>` · `reset`
 
@@ -95,31 +150,41 @@ pings, and a heartbeat pulse once things get tense. It follows the game's tensio
 nearest hostile is, ducts included, hostiles in view) and plays and mutes with the AUDIO button.
 
 The player talks to the whole squad and names a soldier in the message to address one ("Drake, hold there").
-Each soldier in the squad list also has quick console buttons HOLD (stop and look around), SLOW and RUN. Only
-one can be lit at a time; with none lit the soldier moves at normal pace (the default). Pressing the lit one goes
-back to that default: letting go of HOLD, they carry on, rejoining their group if they were following someone.
-The buttons show the soldier's actual state, so orders from the agent light them too, and each press is reported
-to the agent.
 
-Each soldier also has a checkbox (all ticked at the start; the box in the SQUAD title ticks or unticks them all).
-Under the squad list, group-order buttons apply to every ticked soldier at once (with none ticked, to the soldier
-on the monitor): HOLD / SLOW / RUN (as above; lit
-when all the ticked soldiers are in that mode), ALERT, INSPECT ROOM, RETREAT, TOGETHER and SPREAD, and a direction
-pad sends them as far as possible north, south, east or west (the centre is HOLD). Each order shows in the comms
-log as a CONTROL message (e.g. `CONTROL: FROST, HUDSON: HEAD NORTH`) and is reported to the agent, so the player
-can either type orders in the chat or use the console.
+The console works without the agent too. The four big buttons beside the monitor pick whose helmet camera is
+on screen and show each soldier's health, HOLD / SLOW / RUN and who they follow. Under the biomonitor, a chip per
+soldier ticks them for orders (the box in the SQUAD title ticks or unticks them all); the order buttons then apply
+to every ticked soldier (with none ticked, to the one on camera): HOLD / SLOW / RUN (one at a time, lit while all
+of them are in that mode, whoever gave the order; pressing the lit one goes back to normal pace, and letting go of
+HOLD they carry on, rejoining their group if they were following someone), ALERT, OUT OF THERE (each one stops
+following anyone and runs to the nearest corridor, spread over different tiles, then holds), SEAL/UNSEAL DOOR, a
+FOLLOW selector, and a direction pad that sends them as far as possible north, south, east or west (the centre is
+HOLD). INSPECT, RETREAT, TOGETHER and SPREAD have no button but the agent can still order them. Each order shows in
+the comms log as a CONTROL message (e.g. `CONTROL: FROST, HUDSON: HEAD NORTH`)
+and is reported to the agent.
 
 ## Files
 
-- `index.html`, `style.css`, `main.js`: control room, CRT feed, squad/camera selection, comms, agent link
-- `world.js`: 3D colony, soldier movement/aiming/firing/animation, aliens (Three.js)
-- `behavior.js`: what soldiers decide to do: instincts, orders, default behavior; health and death
+Scripts load in this order (plain `<script>` tags, no build step):
+
+- `levels.js`: the level format, `levelGrid()` to turn one into a grid, and the two hand-made levels (not in play)
+- `sectors.js`: the complex: which sectors are linked, and each sector generated as a level
+- `doors.js`: sliding doors: opening, closing, what they block, welding them shut
+- `nav.js`: grid navigation shared by everyone: routes (4- and 8-direction), rooms, exits, line of sight
+- `walls.js`: wall textures (panels, ribbed metal, pipes, hazard bulkheads, consoles, hatches, cables, lockers, lab tiles) and which wall tile gets which
 - `effects.js`: gunfire effects: muzzle flash, tracers, wall sparks, hit splashes
-- `hostiles.js`: what the aliens do: wander, chase, kill on contact
+- `models.js`: soldier and alien models, animation clips and the rifle, loaded once and shared by every world
+- `behavior.js`: what soldiers decide to do: instincts, orders, default behavior; health, death, leaving
+- `hostiles.js`: what the aliens do: ducts and vents, wander, chase, kill on contact
 - `mission.js`: the exit, soldiers leaving through it, and when the level ends
-- `walls.js`: wall textures (panels, ribbed metal, pipes, hazard bulkheads, consoles, hatches, cables, lockers, lab tiles) and which room gets which
-- `serve.sh`: local web server for testing
-- `audio.js`: static/noise sound
+- `world.js`: builds a level's 3D world (Three.js) and moves, aims and fires the soldiers
+- `audio.js`: static, radio bursts, gunfire and suspense music (Web Audio, no sound files)
+- `tacmap.js`: the tactical map with the sonar
+- `papermap.js`: the whole complex as a full-screen paper map
+- `main.js`: the control room: CRT feed, biomonitor, comms, squad console, agent link, levels, main loop
+- `index.html`, `style.css`: the control room layout
 - `agent.html`: agent setup page; builds the prompt for wherever the game is hosted
 - `bridge.mjs`: local bridge between the game and the agent (single file, no dependencies)
 - `bridge/`: optional MCP wrapper around `bridge.mjs`
+- `serve.sh`: local web server for testing (no caching)
+- `tools/check-levels.js`: checks every sector's layout (`node tools/check-levels.js`)

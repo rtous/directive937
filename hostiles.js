@@ -5,6 +5,8 @@
 //           picks them up) and crawl freely over the whole map. They all start there, at the edges.
 //           A release schedule sends them, one at a time, to a ceiling opening, where they drop in.
 //           The release rate doubles every VENTS.doubling seconds; new ones keep arriving at the edges.
+//   GIANT   one huge hostile in THE NEST (sectors.js): never moves. It turns toward the nearest soldier it can see
+//           and lashes out at them (GIANT.range), and it takes a lot of rounds to bring down.
 //   FLOOR   wander the colony at random; on seeing a soldier (or being shot) run at them; touching a
 //           soldier kills them. Lose sight -> search where they were last seen, then wander again.
 
@@ -21,8 +23,9 @@ const HOSTILE = {
   thinkEvery: 0.15,
 };
 
+// The release schedule. A level can override any of these (levels.js: hostiles).
 const VENTS = {
-  start: 0,          // hostiles in the ducts when the mission starts (none: the colony is silent)
+  start: 0,          // hostiles in the ducts when the level starts (none: the colony is silent)
   firstArrival: 20,  // seconds before the first ones reach the ducts (and show on the sonar)
   grace: 35,         // seconds before the first one comes down
   doubling: 50,      // seconds for the number released to double (1, 2, 4, 8, ...)
@@ -35,27 +38,25 @@ const VENTS = {
   nearSquad: 0.6,    // chance an opening near the squad is picked rather than any opening
 };
 
-// nav: grid helpers. TILE: world units per tile. ceiling: height a dropping hostile starts from.
-// fogAt(x, y): is that tile in fog. killSoldier(soldier, alien): a soldier was caught.
-// soldiers: the squad (dead ones are skipped). vents: [[x, y]] ceiling openings. cols/rows: map size.
-// spawn(x, y): create a new hostile in the ducts at that point (world.js calls initVent on it).
-// otherPrey(): anyone else they hunt (none for now); killOther(target, alien) when caught.
-function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vents, cols, rows, spawn,
-  otherPrey = () => [], killOther = () => {} }) {
-  const { isOpen, DIRS, bfs, pathFrom, idx, angleDiff } = nav;
-  const living = () => soldiers.filter((s) => !s.dead);
-  const targets = () => [...living(), ...otherPrey().filter((t) => !t.dead)];
-  const posOf = (u) => [u.tx + (u.nx - u.tx) * u.progress, u.ty + (u.ny - u.ty) * u.progress];
-  const here = (u) => (u.progress >= 1 ? [u.tx, u.ty] : [u.nx, u.ny]);
+const GIANT = {
+  hp: 2000,          // health (a normal hostile has BEHAVIOR.hp.alien; a round takes BEHAVIOR.damage)
+  scale: 3,          // times the size of a normal hostile
+  range: 6,          // tiles: it lashes at soldiers this close that it can see
+  damage: 25,        // health one lash takes off
+  every: 2.5,        // seconds between lashes
+  turn: 1.2,         // radians per second
+};
 
-  function clearLine(ax, ay, bx, by) {
-    const n = Math.ceil(Math.hypot(bx - ax, by - ay) / 0.2);
-    for (let i = 1; i < n; i++) {
-      const t = i / n;
-      if (!isOpen(Math.round(ax + (bx - ax) * t), Math.round(ay + (by - ay) * t))) return false;
-    }
-    return true;
-  }
+// nav: grid helpers (nav.js). TILE: world units per tile. ceiling: height a dropping hostile starts from.
+// soldiers: the squad (those out of play are skipped). fogAt(x, y): is that tile in fog. vents: [[x, y]] ceiling
+// openings. schedule: the level's overrides of VENTS. spawn(x, y): create a new hostile in the ducts at that point
+// (world.js calls initVent on it). killSoldier(soldier): a soldier was caught. lash(giant, soldier): the giant hit
+// a soldier (world.js takes the health off).
+function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, spawn, killSoldier, lash }) {
+  // they open doors like the soldiers do (walking into one), but can't get through a sealed one (walkable)
+  const { walkable, doors, DIRS, bfs, pathFrom, idx, angleDiff, clearLine, cols, rows } = nav;
+  const V = { ...VENTS, ...schedule };
+  const living = () => soldiers.filter((s) => !s.dead);
 
   // On the floor, standing on tile (a.x, a.y)
   function init(a) {
@@ -69,9 +70,9 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
   }
 
   // ---------- Ducts ----------
-  let clock = 0;        // seconds since the mission started
+  let clock = 0;        // seconds since the level started
   let released = 0;     // hostiles sent down so far
-  let arriveT = VENTS.firstArrival;
+  let arriveT = V.firstArrival;
 
   // In the ducts at (a.x, a.y): hidden, drifting
   function initVent(a) {
@@ -93,15 +94,15 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
   // Mostly an opening close to a soldier (they hunt), sometimes any opening
   function chooseVent() {
     const squad = living();
-    if (squad.length && Math.random() < VENTS.nearSquad) {
-      const [sx, sy] = posOf(squad[Math.floor(Math.random() * squad.length)]);
+    if (squad.length && Math.random() < V.nearSquad) {
+      const [sx, sy] = unitPos(squad[Math.floor(Math.random() * squad.length)]);
       return vents.reduce((b, v) => (Math.hypot(v[0] - sx, v[1] - sy) < Math.hypot(b[0] - sx, b[1] - sy) ? v : b));
     }
     return vents[Math.floor(Math.random() * vents.length)];
   }
 
   // How many should have come down by now: 0 during the grace period, then 1, 2, 4, 8...
-  const due = () => (clock < VENTS.grace ? 0 : Math.floor(2 ** ((clock - VENTS.grace) / VENTS.doubling)));
+  const due = () => (clock < V.grace ? 0 : Math.floor(2 ** ((clock - V.grace) / V.doubling)));
 
   // Once per frame, before update(): release hostiles on schedule and keep the ducts stocked
   function tick(dt, aliens) {
@@ -115,8 +116,8 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
     }
     const alive = aliens.filter((a) => !a.dead).length;
     const idle = aliens.filter((a) => !a.dead && a.inVent && !a.vent).length;
-    if ((arriveT -= dt) <= 0 && idle < VENTS.stock && alive < VENTS.cap) {
-      arriveT = VENTS.arriveEvery;
+    if ((arriveT -= dt) <= 0 && idle < V.stock && alive < V.cap) {
+      arriveT = V.arriveEvery;
       spawn(...edgePoint());
     }
   }
@@ -124,7 +125,7 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
   function updateVent(a, dt) {
     if (a.dropT > 0) { // falling through the opening
       a.dropT -= dt;
-      a.group.position.y = Math.max(0, a.dropT / VENTS.drop) * (ceiling - 0.4);
+      a.group.position.y = Math.max(0, a.dropT / V.drop) * (ceiling - 0.4);
       if (a.dropT <= 0) {
         a.group.position.y = 0;
         init(a);
@@ -144,13 +145,13 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
       goal = a.driftTo;
     }
     const dx = goal[0] - a.x, dy = goal[1] - a.y, d = Math.hypot(dx, dy);
-    const step = (a.vent ? VENTS.crawl : VENTS.drift) * dt;
+    const step = (a.vent ? V.crawl : V.drift) * dt;
     if (d > step) {
       a.x += (dx / d) * step;
       a.y += (dy / d) * step;
     } else if (a.vent) { // at the opening: drop
       [a.x, a.y] = a.vent;
-      a.dropT = VENTS.drop;
+      a.dropT = V.drop;
       a.group.visible = true;
       a.group.position.set(a.x * TILE, ceiling - 0.4, a.y * TILE);
       a.group.rotation.y = Math.random() * Math.PI * 2;
@@ -161,10 +162,10 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
 
   // Nearest soldier this alien can see right now
   function spot(a) {
-    const [ax, ay] = posOf(a);
+    const [ax, ay] = unitPos(a);
     let best = null, bestD = Infinity;
-    for (const s of targets()) {
-      const [sx, sy] = posOf(s);
+    for (const s of living()) {
+      const [sx, sy] = unitPos(s);
       const d = Math.hypot(sx - ax, sy - ay);
       const range = fogAt(ax, ay) || fogAt(sx, sy) ? HOSTILE.fogSight : HOSTILE.sight;
       if (d > range || d >= bestD) continue;
@@ -180,8 +181,8 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
   function goTo(a, x, y) {
     const key = `${x},${y}`;
     if (a.pathKey === key) return true;
-    const [fx, fy] = here(a);
-    const search = bfs(fx, fy);
+    const [fx, fy] = unitTile(a);
+    const search = bfs(fx, fy, walkable);
     if (search.dist[idx(x, y)] < 0) return false;
     a.path = pathFrom(search, x, y);
     a.pathKey = key;
@@ -195,7 +196,7 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
     if (prey) {
       a.mode = "chase";
       a.prey = prey;
-      a.lastSeen = here(prey);
+      a.lastSeen = unitTile(prey);
       a.pause = 0;
     }
     if (a.mode === "chase") {
@@ -213,7 +214,7 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
 
   // Random walk: keep going, only turn back at dead ends, now and then stop to listen
   function wanderStep(a) {
-    const options = DIRS.map((d, i) => (isOpen(a.tx + d[0], a.ty + d[1]) ? i : -1)).filter((i) => i >= 0);
+    const options = DIRS.map((d, i) => (walkable(a.tx + d[0], a.ty + d[1]) ? i : -1)).filter((i) => i >= 0);
     if (!options.length) return -1;
     const back = (a.dir + 2) % 4;
     const forward = options.filter((d) => d !== back);
@@ -235,24 +236,80 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
     a.mixer.update(dt);
   }
 
+  // ---------- The giant ----------
+  // Standing on tile (a.x, a.y) for good
+  function initGiant(a) {
+    Object.assign(a, {
+      giant: true, inVent: false, tx: a.x, ty: a.y, nx: a.x, ny: a.y, progress: 1, dir: -1,
+      heading: a.group.rotation.y, path: [], mode: "guard", prey: null, lashT: GIANT.every, attackLeft: 0,
+    });
+  }
+
+  function updateGiant(a, dt) {
+    // the nearest soldier in range it can see (it senses all around: it's in no hurry to turn its whole body)
+    let prey = null, best = Infinity;
+    for (const s of living()) {
+      const [sx, sy] = unitPos(s);
+      const d = Math.hypot(sx - a.x, sy - a.y);
+      if (d <= GIANT.range && d < best && clearLine(a.x, a.y, sx, sy)) { best = d; prey = s; }
+    }
+    a.prey = prey;
+    a.mode = prey ? "lash" : "guard";
+    a.lashT = Math.max(0, a.lashT - dt);
+    if (prey) {
+      const [px, py] = unitPos(prey);
+      const diff = angleDiff(a.heading, Math.atan2(px - a.x, py - a.y));
+      a.heading += Math.sign(diff) * Math.min(Math.abs(diff), GIANT.turn * dt);
+      if (a.lashT === 0 && Math.abs(diff) < 0.6) {
+        a.lashT = GIANT.every;
+        attackAnimation(a);
+        lash(a, prey);
+      }
+    }
+    // the attack plays once, then back to standing still
+    if (a.attackLeft > 0 && (a.attackLeft -= dt) <= 0.2 && a.actions.attack) {
+      a.actions.attack.fadeOut(0.2);
+      a.actions.idle?.reset().fadeIn(0.2).play();
+      a.attackLeft = 0;
+    }
+    a.group.rotation.y = a.heading;
+    a.mixer.update(dt);
+  }
+  function attackAnimation(a) {
+    const at = a.actions.attack;
+    if (!at) return;
+    a.actions.idle?.fadeOut(0.15);
+    at.reset().setLoop(THREE.LoopOnce, 1).fadeIn(0.15).play();
+    a.attackLeft = at.getClip().duration;
+  }
+
   function update(a, dt) {
     if (a.dead) return;
+    if (a.giant) return updateGiant(a, dt);
     if (a.inVent) return updateVent(a, dt);
     if (a.freshDrop > 0) a.freshDrop -= dt;
     if ((a.thinkT -= dt) <= 0) { a.thinkT = HOSTILE.thinkEvery; think(a); }
     if (a.pause > 0) a.pause -= dt;
 
-    // next tile
+    // next tile. A door on the way opens as it walks into it (it waits while the door slides); a sealed one
+    // means another way.
     if (a.progress >= 1) {
       a.tx = a.nx; a.ty = a.ny;
       let d = -1;
       if (a.mode === "chase" && a.path.length) {
-        const [x, y] = a.path.shift();
+        const [x, y] = a.path[0];
         d = DIRS.findIndex(([dx, dy]) => dx === x - a.tx && dy === y - a.ty);
-        if (d < 0) { a.path = []; a.pathKey = null; }
+        if (d < 0 || !walkable(x, y)) { d = -1; a.path = []; a.pathKey = null; } // off route, or sealed since
       } else if (a.mode === "wander" && a.pause <= 0) {
-        d = wanderStep(a);
+        // still heading for the door it was waiting at, unless it got sealed meanwhile
+        const w = a.waitDir;
+        d = w != null && walkable(a.tx + DIRS[w][0], a.ty + DIRS[w][1]) ? w : wanderStep(a);
       }
+      const door = d >= 0 ? doors.at(a.tx + DIRS[d][0], a.ty + DIRS[d][1]) : null;
+      if (door) doors.ask(door);
+      a.waitDir = door && !doors.canPass(door) ? d : null;
+      if (a.waitDir != null) d = -1; // wait for it to open
+      else if (d >= 0 && a.mode === "chase") a.path.shift();
       if (d >= 0 && a.pause <= 0) {
         a.dir = d;
         a.nx = a.tx + DIRS[d][0];
@@ -270,21 +327,20 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
       const diff = angleDiff(a.heading, want);
       a.heading += Math.sign(diff) * Math.min(Math.abs(diff), HOSTILE.turn * dt);
     } else if (a.prey && !a.prey.dead) { // standing: face the prey
-      const [px, py] = posOf(a.prey);
+      const [px, py] = unitPos(a.prey);
       const diff = angleDiff(a.heading, Math.atan2(px - a.tx, py - a.ty));
       a.heading += Math.sign(diff) * Math.min(Math.abs(diff), HOSTILE.turn * dt);
     }
-    [a.x, a.y] = posOf(a);
+    [a.x, a.y] = unitPos(a);
     a.group.position.set(a.x * TILE, 0, a.y * TILE);
     a.group.rotation.y = a.heading;
     animate(a, dt, moving);
 
     // touch = kill
-    for (const s of targets()) {
-      const [sx, sy] = posOf(s);
+    for (const s of living()) {
+      const [sx, sy] = unitPos(s);
       if (Math.hypot(sx - a.x, sy - a.y) < HOSTILE.reach) {
-        if (soldiers.includes(s)) killSoldier(s, a);
-        else killOther(s, a);
+        killSoldier(s);
         a.mode = "wander";
         a.prey = null;
         a.path = [];
@@ -295,8 +351,5 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vent
     }
   }
 
-  // What the squad's status can say about an alien
-  const describe = (a) => (a.mode === "chase" ? "charging" : a.progress < 1 ? "moving" : "still");
-
-  return { init, initVent, tick, update, describe, edgePoint, get released() { return released; } };
+  return { initVent, initGiant, tick, update, edgePoint, schedule: V };
 }

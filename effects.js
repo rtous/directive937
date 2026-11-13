@@ -1,7 +1,7 @@
 "use strict";
 
 // Gunfire effects: muzzle flash at the rifle, a tracer streak, and an impact where the round lands
-// (sparks on walls, a splash on a hostile). Everything is pooled: a fixed number of lights,
+// (sparks on walls, a splash on a hostile). Also welding: sparks pouring off a door seam under a flickering arc. Everything is pooled: a fixed number of lights,
 // particles and lines exist from the start, so firing never adds objects to the scene.
 
 function createEffects(scene) {
@@ -141,6 +141,8 @@ function createEffects(scene) {
 
   const muzzles = [];
   const MUZZLE_LIGHT = 1.3; // enough to light the corridor, not to white out the wall beside the rifle
+  const arc = { light: new THREE.PointLight(0xdde8ff, 0, 7, 2), life: 0 }; // the welding arc (one welder at a time)
+  scene.add(arc.light);
 
   return {
     muzzleLight() { const m = muzzleLight(); muzzles.push(m); return m; },
@@ -174,7 +176,20 @@ function createEffects(scene) {
       }
     },
 
+    // One welding frame at `at` (on the seam); `out`: from the door toward the welder
+    weld(at, out) {
+      if (Math.random() < 0.6) {
+        emit(sparks, at, out.clone().setY(0.4), 2 + Math.floor(Math.random() * 4),
+          { speed: 2.5, spread: 2.4, life: 0.7, gravity: 9, color: [2.2, 1.6, 0.9] });
+      }
+      if (Math.random() < 0.35) flash(at, 0.25 + Math.random() * 0.25, 0.05, 0xe8f0ff);
+      arc.light.position.copy(at).addScaledVector(out, 0.3);
+      arc.light.intensity = 1.2 + Math.random() * 2.2;
+      arc.life = 0.12;
+    },
+
     update(dt) {
+      if (arc.life > 0 && (arc.life -= dt) <= 0) arc.light.intensity = 0;
       updateCloud(sparks, dt);
       updateCloud(splash, dt);
       for (let i = 0; i < T_MAX; i++) {

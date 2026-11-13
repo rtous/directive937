@@ -36,7 +36,7 @@ server.registerTool("send_order", {
     "watch all angles, engage and pursue hostiles); instincts (point-blank fire, panic flight) override orders.\n" +
     "TASKS: patrol [room] | goto <room | x y> | north/south/east/west (as far as possible) | hold | " +
     "alert (stop, look all around 5 s, carry on) | inspect [room] (check it spot by spot, then hold) | " +
-    "retreat [room] | follow <unit> | continue.\n" +
+    "retreat [room] | getout (each runs to the nearest corridor, on their own) | follow <unit> | seal [door] (weld a door shut, 20 s, one soldier) | unseal [door] (cut a sealed door open again, 15 s) | continue.\n" +
     "SQUAD SHAPE: together (regroup behind the lowest-numbered unit) | split (ALPHA 1+2, BRAVO 3+4) | spread.\n" +
     "STANDING ORDERS (kept until changed): pace slow|normal|fast | fire free|hold | contact engage|hold|retreat | " +
     "pursue on|off | watch auto|front|rear|<direction, diagonals too: north-east>|center (of the room)|<room>|<x y> (lapses to auto a few seconds after moving) | reset.",

@@ -28,7 +28,9 @@
 
     <aside class="col left">
       <section class="panel map-panel">
-        <h2>TACTICAL MAP <span id="map-coords" class="dim">--</span></h2>
+        <h2><span>TACTICAL MAP // <span id="level-name">--</span></span>
+          <span class="map-tools"><span id="map-coords" class="dim">--</span>
+            <button type="button" id="map-btn" class="map-btn" title="The whole complex, as a paper map (Esc to close)">⤢ FULL MAP</button></span></h2>
         <div class="map-crt">
           <canvas id="map" width="440" height="330"></canvas>
           <div class="crt-scanlines"></div>
@@ -65,7 +67,10 @@
               <div class="mission-end" id="mission-end" hidden>
                 <b id="mission-end-title"></b>
                 <span id="mission-end-text"></span>
-                <button type="button" id="restart-btn">RESTART LEVEL</button>
+                <span class="end-buttons">
+                  <button type="button" id="restart-btn">RESTART SECTOR</button>
+                  <button type="button" id="new-btn">NEW MISSION</button>
+                </span>
               </div>
               <div class="osd-bottom">
                 <span class="osd-name" id="soldier-name">SGT. R. FROST</span>
@@ -108,10 +113,8 @@
               <button type="button" data-act="slow" title="Move slowly: see further, aim better (press again for normal pace)">SLOW</button>
               <button type="button" data-act="run" title="Run: faster, but see less (press again for normal pace)">RUN</button>
               <button type="button" data-act="alert" title="Stop and look in all directions for 5 seconds, then carry on">ALERT</button>
-              <button type="button" data-act="inspect" title="Check the room they're in (or the nearest one): walk to a few spots and look around at each">INSPECT</button>
-              <button type="button" data-act="retreat" title="Fall back from the hostiles">RETREAT</button>
-              <button type="button" data-act="together" title="Regroup behind the lowest-numbered unit">TOGETHER</button>
-              <button type="button" data-act="spread" title="Fan out across the room and act independently">SPREAD</button>
+              <button type="button" data-act="getout" title="Each of them stops following anyone and runs to the nearest corridor, then holds there">OUT OF THERE</button>
+              <button type="button" data-act="seal" title="Weld the nearest door shut (20 s), or cut it open again if it's sealed (15 s). One soldier does it: the one on camera if ticked, else a group leader">SEAL/UNSEAL DOOR</button>
               <select id="go-follow" title="Who they follow (NOBODY: stop and hold)"></select>
             </div>
           </div>
@@ -126,22 +129,39 @@
       </section>
     </aside>
 
+    <div class="paper-map" id="paper-map" hidden>
+      <div class="paper-head">
+        <span>COMPLEX MAP // SECTORS A1-H8</span>
+        <button type="button" data-close>✕ CLOSE</button>
+      </div>
+      <canvas></canvas>
+    </div>
+
     <footer class="bottombar panel">
       <div class="ticker"><span id="ticker"></span></div>
     </footer>
   </div>
+  <div class="screen-crt" aria-hidden="true"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- for the Mixamo soldier model (characters/*.fbx) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+  <!-- the game: level data and navigation, then the minds, the 3D world, and the control room -->
+  <script src="levels.js"></script>
+  <script src="sectors.js"></script>
+  <script src="doors.js"></script>
+  <script src="nav.js"></script>
+  <script src="walls.js"></script>
   <script src="effects.js"></script>
+  <script src="models.js"></script>
   <script src="behavior.js"></script>
   <script src="hostiles.js"></script>
   <script src="mission.js"></script>
-  <script src="walls.js"></script>
   <script src="world.js"></script>
   <script src="audio.js"></script>
+  <script src="tacmap.js"></script>
+  <script src="papermap.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

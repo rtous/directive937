@@ -387,6 +387,8 @@ h2 {
 .cam-select .cs-mode { background: var(--seegson); border-color: var(--seegson) !important; color: var(--deep) !important; }
 .cam-select .cs-mode[data-mode="hold"] { background: var(--acid); border-color: var(--acid) !important; }
 .cam-select button.dead { opacity: 0.45; }
+.cam-select button.out { opacity: 0.6; }
+.cam-select button.out em { color: var(--cryo); }
 .cam-select button.dead em { color: var(--acid); }
 .rec { color: var(--acid); animation: blink 1.2s steps(1) infinite; }
 

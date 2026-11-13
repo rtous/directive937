@@ -84,7 +84,7 @@ function scheduleEvents(now) {
 function renderFeed(now) {
   const t = now / 1000;
   const switching = now < switchUntil;
-  // a fallen soldier's helmet camera is lost
+  // a fallen soldier's helmet camera is lost; so is one who went out through the exit (out of range)
   const lost = world && world.soldiers[selected].dead;
   const burst = now < burstUntil || switching || lost;
 
@@ -155,7 +155,7 @@ function renderFeed(now) {
   // Overlay state
   crt.classList.toggle("glitch", burst);
   if (burst) {
-    osdMsg.textContent = switching ? `CH-${pad(SQUAD[selected].id)}` : "NO SIGNAL";
+    osdMsg.textContent = switching ? `CH-${pad(SQUAD[selected].id)}` : world && world.soldiers[selected].exited ? "EXITED" : "NO SIGNAL";
     osdMsg.classList.add("show");
   } else {
     osdMsg.classList.remove("show");
@@ -238,6 +238,12 @@ function updateVitals() {
   });
   const v = vitals[selected];
   const dead = world && world.soldiers[selected].dead;
+  if (dead && world.soldiers[selected].exited) { // out of the level: no telemetry, not a death
+    ["bpm", "o2", "bp", "resp", "hp"].forEach((id) => { $(id).textContent = "--"; $(id).classList.remove("alert"); });
+    $("vstatus").textContent = "EXITED";
+    $("vstatus").classList.remove("alert");
+    return;
+  }
   $("bpm").textContent = v.bpm;
   $("bpm").classList.toggle("alert", v.bpm > 120);
   $("o2").textContent = v.o2;
@@ -347,10 +353,10 @@ const sonarBlips = new Map(); // alien -> { x, y, at }: where and when the wave 
 let sonarWave = -1;           // index of the current wave
 let sonarLastR = 0;
 
-// Extraction point (the survivor is never shown on the map: soldiers find them by the distress signal)
-function drawMission(now, cell, ox, oy, px, py) {
+// The exit: the EXIT room outlined, and the hatch in the outer wall
+function drawMission(now, cell, ox, oy) {
   const pulse = 0.55 + 0.45 * Math.sin(now / 300);
-  const ex = world.extraction;
+  const ex = world.exit, door = world.exitDoor;
   mctx.save();
   mctx.strokeStyle = mctx.fillStyle = mctx.shadowColor = "#ff6a4a";
   mctx.shadowBlur = 10;
@@ -359,9 +365,7 @@ function drawMission(now, cell, ox, oy, px, py) {
   mctx.setLineDash([4, 3]);
   mctx.strokeRect(ox + ex.x * cell, oy + ex.y * cell, ex.w * cell, ex.h * cell);
   mctx.setLineDash([]);
-  mctx.font = `${Math.round(cell * 1.4)}px VT323, monospace`;
-  mctx.textAlign = "center";
-  mctx.fillText("EXTRACT", ox + (ex.x + ex.w / 2) * cell, oy + (ex.y + ex.h + 1.1) * cell);
+  mctx.fillRect(ox + door.x * cell, oy + (door.y - 0.5) * cell, cell * 0.6, cell * 2); // the hatch
   mctx.restore();
 }
 
@@ -380,7 +384,7 @@ function renderMap(now) {
   mctx.textBaseline = "middle";
   const px = (u) => ox + (u.tx + (u.nx - u.tx) * u.progress + 0.5) * cell; // map position of a moving unit
   const py = (u) => oy + (u.ty + (u.ny - u.ty) * u.progress + 0.5) * cell;
-  drawMission(now, cell, ox, oy, px, py);
+  drawMission(now, cell, ox, oy);
 
   // sonar waves, one from each living soldier
   const carriers = world.soldiers.map((s, i) => ({ s, i })).filter(({ s }) => !s.dead);
@@ -563,18 +567,15 @@ const RADIO_CALLS = [
   [/^has nowhere to retreat to\. Holding\./, "Nowhere to fall back to. Holding."],
   [/^all-round check done, (.*)\. Back to: (.*)\./, "All around clear: $1. Back to $2."],
   [/^finished inspecting (.*): (.*)\. Holding\./, "$1 checked: $2. Holding."],
-  [/^found the survivor in (.*?)!.*/, "I've found the survivor in $1! They're with me. Heading for the AIRLOCK."],
 ];
 function radioFallback(soldier, text) {
   const say = (t, who, kind, unit) => {
     addLog(t, kind, who);
     sound.radio({ kind, urgent: kind === "soldier" && isUrgent(unit, t) });
   };
-  if (/^MISSION (COMPLETE|FAILED)/.test(text)) return; // shown over the camera feed
+  if (/^(LEVEL COMPLETE|SQUAD LOST)/.test(text)) return; // shown over the camera feed
   if (/ entering .* while /.test(text)) return;        // too frequent to call in
   if (/No life signs\.$/.test(text) || !soldier || soldier.dead) return say(text, "MOTHER", "mother");
-  if (/^The survivor is now following/.test(text)) return say("The survivor's with me now.", soldier.callsign, "soldier", soldier.id);
-  if (/^The survivor was taken/.test(text)) return say(text, "MOTHER", "mother");
   const body = text.replace(/^Unit \d+ \([^)]*\) /, "");
   const rule = RADIO_CALLS.find(([re]) => re.test(body));
   say(rule ? body.replace(rule[0], rule[1]) : body, soldier.callsign, "soldier", soldier.id);
@@ -661,16 +662,16 @@ if (world) {
     if (bridgeOpen) sendBridge({ type: "event", unit: soldier ? soldier.id : null, text, status: fullStatus() });
     else radioFallback(soldier, text);
   };
-  // Win or lose: the world freezes and the result shows over the camera feed
+  // Nobody left inside: the world freezes and the result shows over the camera feed
   world.onMissionEnd = ({ win, reason }) => {
     const box = $("mission-end");
     box.className = `mission-end ${win ? "won" : "lost"}`;
-    $("mission-end-title").textContent = win ? "MISSION COMPLETE" : "MISSION FAILED";
+    $("mission-end-title").textContent = win ? "LEVEL COMPLETE" : "SQUAD LOST";
     $("mission-end-text").textContent = reason.toUpperCase();
     box.hidden = false;
   };
   $("restart-btn").addEventListener("click", () => location.reload());
-  addLog(`MISSION: ${world.mission.status().objective} FOLLOW THE SURVIVOR'S DISTRESS SIGNAL (SOS): IT GETS STRONGER AS YOU CLOSE IN.`, "system");
+  addLog(`MISSION: ${world.mission.status().objective}`, "system");
 }
 
 // ---------- Comms input ----------
@@ -727,20 +728,10 @@ const camButtons = SQUAD.map((u, i) => {
   return b;
 });
 
-// Distress signal each soldier's detector picks up, with a little flicker; shown on the monitor
-const sosBars = (pct) => (pct <= 0 ? 0 : Math.min(5, 1 + Math.floor(pct / 20)));
-function updateDistress() {
+// How many of the squad are out through the exit, top right of the monitor
+function updateExitCount() {
   if (!world) return;
-  world.soldiers.forEach((s, i) => {
-    const pct = world.mission.signal(s);
-    const shown = pct > 0 ? Math.max(1, Math.min(100, pct + Math.round(rand(-3, 3)))) : 0;
-    const bars = sosBars(shown);
-    if (i !== selected) return;
-    const el = $("osd-sos");
-    if (s.dead) el.textContent = "SOS --";
-    else if (world.mission.survivor.dead) el.textContent = "SOS LOST";
-    else el.textContent = `SOS ${"▮".repeat(bars)}${"▯".repeat(5 - bars)} ${String(shown).padStart(2, "0")}%`;
-  });
+  $("osd-out").textContent = `OUT ${world.mission.out.length}/${SQUAD.length}`;
 }
 
 // How tense things are, for the music: 0 calm .. 1 hostiles on top of the squad.
@@ -768,8 +759,9 @@ function updateRoster() {
     const s = world && world.soldiers[i];
     const cb = camButtons[i];
     cb.classList.toggle("active", i === selected);
-    cb.classList.toggle("dead", !!(s && s.dead));
-    cb.querySelector("em").textContent = s && s.dead ? "NO SIGNAL" : `HP ${s ? s.hp : "--"}`;
+    cb.classList.toggle("dead", !!(s && s.dead && !s.exited));
+    cb.classList.toggle("out", !!(s && s.exited));
+    cb.querySelector("em").textContent = s && s.exited ? "EXITED" : s && s.dead ? "NO SIGNAL" : `HP ${s ? s.hp : "--"}`;
     // how they move (HOLD / SLOW / RUN; nothing at normal pace) and who they follow
     const live = s && !s.dead;
     const mode = live ? modeOf(s) : "normal";
@@ -946,7 +938,7 @@ function selectUnit(i) {
   $("cam-title").firstChild.textContent = `HELMET CAM // UNIT ${pad(u.id)} `;
   switchUntil = performance.now() + 350;
   updateRoster();
-  updateDistress();
+  updateExitCount();
   updateVitals();
 }
 selectUnit(0);
@@ -960,7 +952,7 @@ $("ticker").textContent =
 let lastFrame = 0;
 let lastFeed = 0;
 let lastSlow = -Infinity;
-let lastDistress = 0;
+let lastExitCount = 0;
 
 function loop(now) {
   const dt = lastFrame ? now - lastFrame : 16;
@@ -972,9 +964,9 @@ function loop(now) {
     renderVitalsNoise(now);
     lastFeed = now;
   }
-  if (now - lastDistress > 250) {
-    lastDistress = now;
-    updateDistress();
+  if (now - lastExitCount > 250) {
+    lastExitCount = now;
+    updateExitCount();
     sound.setTension(gameTension());
   }
   // clamp so a backgrounded tab doesn't teleport the soldier

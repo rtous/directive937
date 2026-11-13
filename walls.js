@@ -187,6 +187,7 @@ const WALL_STYLES = {
   "MESS HALL": { base: "panel", features: ["lockers", "hatch"] },
   "AIRLOCK": { base: "hazard", features: ["ribbed", "hatch"] },
   "ARMORY": { base: "lockers", features: ["ribbed", "hazard"] },
+  "EXIT": { base: "hazard", features: ["ribbed", "hatch"] },
   corridor: { base: ["ribbed", "panel", "pipes", "cables"], features: ["hatch", "pipes", "cables", "hazard"] },
 };
 const WALL_FEATURE_CHANCE = 0.22;

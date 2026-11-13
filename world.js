@@ -43,7 +43,7 @@ const XENO = {
 // ---------- Colony layout ----------
 // A fixed outpost: named rooms joined by narrow corridors. Grid tiles: 1 = wall, 0 = open.
 // Coordinates are tiles; x grows east, y grows south (north is up on the tactical map).
-const COLONY_W = 44;
+const COLONY_W = 46;
 const COLONY_H = 32;
 
 const COLONY_ROOMS = [
@@ -64,7 +64,13 @@ const COLONY_ROOMS = [
     desc: "Main airlock where the squad came in. Red emergency strobe, outer door sealed behind them." },
   { name: "ARMORY", label: "ARMS", aliases: ["armoury", "weapons", "arms"], x: 33, y: 25, w: 8, h: 4, light: 0xc8ffd0,
     desc: "Colony armory. Weapon racks mostly empty, ammo cases scattered on the floor." },
+  // The way out: a small vestibule off the living quarters with a hatch in the outer (east) wall.
+  // Whoever steps in goes through the door and leaves the level (mission.js).
+  { name: "EXIT", label: "EXIT", aliases: ["exit door", "way out", "outer door", "evac", "hatch"], x: 42, y: 5, w: 3, h: 3, light: 0xff4030,
+    desc: "Exit vestibule. A heavy hatch in the outer wall, red EXIT light above it: the way out of this sector." },
 ];
+// Where the exit hatch is drawn: the outer-wall tile east of the EXIT room
+const EXIT_DOOR = { x: 45, y: 6 };
 
 // Corridors as straight runs: [x1, y1, x2, y2] (inclusive), 1 tile wide unless noted
 const COLONY_CORRIDORS = [
@@ -79,6 +85,7 @@ const COLONY_CORRIDORS = [
   [6, 19, 6, 23],     // storage <-> mess hall
   [36, 9, 36, 13],    // quarters <-> processor
   [36, 20, 36, 24],   // processor <-> armory
+  [41, 6, 41, 6],     // living quarters <-> exit
 ];
 
 // Areas filled with steam or smoke: [x1, y1, x2, y2] (tiles, inclusive) and what it is.
@@ -325,46 +332,50 @@ function createWorld(width, height, squad) {
     });
   }
 
-  // ---------- Extraction point ----------
-  // Painted on the airlock floor where the squad came in: where the survivor has to be brought back to
-  const extraction = rooms.find((r) => r.name === "AIRLOCK");
+  // ---------- Exit ----------
+  // The hatch in the outer wall, with a lit EXIT sign, and arrows on the vestibule floor pointing at it
+  const exit = rooms.find((r) => r.name === "EXIT");
   {
     const c = document.createElement("canvas");
-    c.width = c.height = 256;
+    c.width = 128; c.height = 160;
     const g = c.getContext("2d");
-    g.strokeStyle = g.fillStyle = "#ffffff";
-    g.lineWidth = 10;
-    g.beginPath();
-    g.arc(128, 128, 100, 0, Math.PI * 2);
-    g.stroke();
-    g.lineWidth = 4;
-    g.beginPath();
-    g.arc(128, 128, 82, 0, Math.PI * 2);
-    g.stroke();
-    for (let i = 0; i < 4; i++) { // chevrons pointing in
-      g.save();
-      g.translate(128, 128);
-      g.rotate((i * Math.PI) / 2);
-      g.beginPath();
-      g.moveTo(-18, -122);
-      g.lineTo(0, -104);
-      g.lineTo(18, -122);
-      g.lineTo(18, -112);
-      g.lineTo(0, -94);
-      g.lineTo(-18, -112);
-      g.fill();
-      g.restore();
+    g.fillStyle = "#3a3d3b"; g.fillRect(0, 0, 128, 160);           // frame
+    g.fillStyle = "#565b58"; g.fillRect(12, 34, 104, 126);          // hatch
+    g.strokeStyle = "#202321"; g.lineWidth = 3;
+    g.strokeRect(12, 34, 104, 126);
+    g.beginPath(); g.moveTo(64, 34); g.lineTo(64, 160); g.stroke(); // split doors
+    for (let y = 46; y < 160; y += 16) {                            // hazard stripes along the edges
+      g.fillStyle = "#d8b030"; g.fillRect(14, y, 8, 8); g.fillRect(106, y, 8, 8);
     }
-    g.font = "bold 30px monospace";
-    g.textAlign = "center";
-    g.textBaseline = "middle";
-    g.fillText("EXTRACTION", 128, 128);
-    const decal = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), new THREE.MeshBasicMaterial({
-      map: new THREE.CanvasTexture(c), color: 0xd84a3a, transparent: true, opacity: 0.8, depthWrite: false,
+    g.fillStyle = "#ff3020"; g.fillRect(30, 6, 68, 22);             // the sign
+    g.fillStyle = "#ffffff";
+    g.font = "bold 18px monospace";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText("EXIT", 64, 18);
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.95, WALL_H * 0.95), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c) }));
+    door.position.set((EXIT_DOOR.x - 0.5) * TILE - 0.01, WALL_H * 0.475, EXIT_DOOR.y * TILE);
+    door.rotation.y = -Math.PI / 2; // facing west, into the vestibule
+    scene.add(door);
+    const glow = new THREE.PointLight(0xff3020, 0.8, TILE * 3, 1.5);
+    glow.position.set((EXIT_DOOR.x - 1) * TILE, WALL_H - 0.2, EXIT_DOOR.y * TILE);
+    scene.add(glow);
+
+    const f = document.createElement("canvas");
+    f.width = 256; f.height = 128;
+    const fg = f.getContext("2d");
+    fg.fillStyle = "#ffffff";
+    for (let i = 0; i < 3; i++) { // chevrons pointing east, at the door
+      const x = 30 + i * 70;
+      fg.beginPath();
+      fg.moveTo(x, 24); fg.lineTo(x + 40, 64); fg.lineTo(x, 104); fg.lineTo(x + 18, 104); fg.lineTo(x + 58, 64); fg.lineTo(x + 18, 24);
+      fg.fill();
+    }
+    const arrows = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 2.4, TILE * 1.2), new THREE.MeshBasicMaterial({
+      map: new THREE.CanvasTexture(f), color: 0xd84a3a, transparent: true, opacity: 0.8, depthWrite: false,
     }));
-    decal.rotation.x = -Math.PI / 2;
-    decal.position.set((extraction.x + (extraction.w - 1) / 2) * TILE, 0.02, (extraction.y + (extraction.h - 1) / 2) * TILE);
-    scene.add(decal);
+    arrows.rotation.x = -Math.PI / 2;
+    arrows.position.set((exit.x + (exit.w - 1) / 2) * TILE, 0.02, EXIT_DOOR.y * TILE);
+    scene.add(arrows);
   }
 
   // ---------- Fog ----------
@@ -943,18 +954,18 @@ function createWorld(width, height, squad) {
   const hostiles = createHostiles({
     nav: { isOpen, DIRS, bfs, pathFrom, idx, angleDiff }, TILE, ceiling: WALL_H, soldiers, fogAt,
     vents, cols, rows, spawn: (x, y) => spawnAlien(x, y),
-    otherPrey: () => (mission.exposed ? [mission.survivor] : []),
-    killOther: () => mission.kill(),
+    otherPrey: () => [],
+    killOther: () => {},
     killSoldier: (s) => {
       const room = roomOf(Math.round(s.tx), Math.round(s.ty));
       brain.hurt(s, s.hp, `was taken by a hostile in ${room ? room.name : "a corridor"}`);
     },
   });
 
-  // The mission: find the survivor and bring them back to the extraction point (mission.js)
+  // The mission: get the squad out through the EXIT door (mission.js)
   let onMissionEnd = () => {};
   const mission = createMission({
-    nav: { isOpen, bfs, pathFrom, idx, cols, roomOf, DIRS, headingFor }, scene, TILE, soldiers, rooms, extraction,
+    exit, soldiers, roomOf, leave: (s) => brain.leave(s),
     emit: (soldier, text) => onEvent(soldier, text),
     end: (result) => onMissionEnd(result),
   });
@@ -1007,7 +1018,6 @@ function createWorld(width, height, squad) {
       location: roomOf(x, y)?.name ?? "CORRIDOR",
       // grid coordinates (same as the tactical map); x grows east, y grows south
       position: { x, y },
-      distress_signal: mission.signal(s), // 0-100: stronger closer to the survivor
       facing: compass4(s.heading),
       looking: compass4(s.heading + s.lookOffset),
       ...brain.describe(s),
@@ -1150,7 +1160,7 @@ function createWorld(width, height, squad) {
   return {
     canvas: renderer.domElement, update, render, grid, rooms, soldiers, aliens, status,
     fogZones: FOG_ZONES.map((z) => z.area),
-    vents, extraction, mission,
+    vents, exit, exitDoor: EXIT_DOOR, mission,
     set onMissionEnd(fn) { onMissionEnd = fn; },
     order: brain.order, findUnits: brain.findUnits, shortOrder: brain.shortCode,
     // take health off units (for hostiles that fight back later, or testing): hurt("2", 40)

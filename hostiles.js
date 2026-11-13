@@ -39,7 +39,7 @@ const VENTS = {
 // fogAt(x, y): is that tile in fog. killSoldier(soldier, alien): a soldier was caught.
 // soldiers: the squad (dead ones are skipped). vents: [[x, y]] ceiling openings. cols/rows: map size.
 // spawn(x, y): create a new hostile in the ducts at that point (world.js calls initVent on it).
-// otherPrey(): anyone else they hunt (the survivor, once out of hiding); killOther(target, alien) when caught.
+// otherPrey(): anyone else they hunt (none for now); killOther(target, alien) when caught.
 function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, killSoldier, vents, cols, rows, spawn,
   otherPrey = () => [], killOther = () => {} }) {
   const { isOpen, DIRS, bfs, pathFrom, idx, angleDiff } = nav;

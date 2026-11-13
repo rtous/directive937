@@ -31,13 +31,12 @@ Optional MCP version (same protocol, tools instead of commands):
 
 ## Mission
 
-A survivor is hiding somewhere in the colony, far from the AIRLOCK where the squad comes in (`mission.js`). The
-survivor never shows on the tactical map: each soldier carries a distress-signal detector, stronger the closer
-they are (shown on the camera monitor as SOS bars and a percentage, and as small bars next to each soldier in
-the squad list). A soldier who gets within ~2.5 tiles finds them, and the survivor follows that soldier (or another one nearby if that soldier dies). Bring the survivor back
-to the AIRLOCK, the extraction point marked on its floor and outlined on the map, to win. If the survivor dies, or
-the whole squad, the mission is lost. Either way the game freezes and the result shows over the camera feed, with
-a restart button. The survivor is a simple placeholder figure for now.
+The squad comes in through the AIRLOCK and has to get out through the EXIT (`mission.js`): a small room off the
+east side of the LIVING QUARTERS, with a hatch in the colony's outer wall (marked on the map and with red arrows
+on its floor). A soldier who steps into the EXIT room goes through the hatch and leaves the level, out of play.
+The camera monitor shows how many are out (`OUT 1/4`). Once nobody is left inside the game freezes and the result
+shows over the camera feed, with a restart button: LEVEL COMPLETE if at least one soldier made it out, SQUAD LOST
+if they all died. (The exit will later lead on to the next map.)
 
 ## Soldier behavior
 
@@ -117,7 +116,7 @@ can either type orders in the chat or use the console.
 - `behavior.js`: what soldiers decide to do: instincts, orders, default behavior; health and death
 - `effects.js`: gunfire effects: muzzle flash, tracers, wall sparks, hit splashes
 - `hostiles.js`: what the aliens do: wander, chase, kill on contact
-- `mission.js`: the survivor, the extraction point, winning and losing
+- `mission.js`: the exit, soldiers leaving through it, and when the level ends
 - `walls.js`: wall textures (panels, ribbed metal, pipes, hazard bulkheads, consoles, hatches, cables, lockers, lab tiles) and which room gets which
 - `serve.sh`: local web server for testing
 - `audio.js`: static/noise sound

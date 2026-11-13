@@ -771,6 +771,20 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
       if (s.hp <= 30 && s.hp + amount > 30) emit(s, `${label(s)} badly wounded, health ${s.hp}.`);
       return;
     }
+    removeFromPlay(s);
+    killSoldier(s);
+    emit(s, `${label(s)} ${how || "is down"}. No life signs.`);
+  }
+
+  // A soldier went out through the exit door: out of the level, alive. Counts as "dead" for everything that
+  // looks for soldiers still in play (orders, hostiles, followers); s.exited tells the two apart.
+  function leave(s) {
+    if (s.dead) return;
+    s.exited = true;
+    removeFromPlay(s);
+  }
+
+  function removeFromPlay(s) {
     s.dead = true;
     s.path = [];
     s.target = null;
@@ -784,8 +798,6 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
       orphans.forEach((o) => { if (o !== next) o.leader = next; });
     }
     s.leader = null;
-    killSoldier(s);
-    emit(s, `${label(s)} ${how || "is down"}. No life signs.`);
   }
 
   // ---------- Where to look ----------
@@ -1142,7 +1154,7 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
   function order(unitSpec, rawAction, rawTarget) {
     const fallen = findUnits(unitSpec, everyone).filter((s) => s.dead);
     if (fallen.length && !findUnits(unitSpec).length) {
-      return fallen.map((s) => ({ unit: s.id, name: s.callsign, ok: false, detail: `${s.callsign} is KIA.` }));
+      return fallen.map((s) => ({ unit: s.id, name: s.callsign, ok: false, detail: `${s.callsign} ${s.exited ? "has left through the exit" : "is KIA"}.` }));
     }
     const results = applyOrder(unitSpec, rawAction, rawTarget);
     soldiers.forEach((s) => think(s, 0)); // act on it now, so the status sent back is current
@@ -1178,7 +1190,7 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
 
   // ---------- Reporting ----------
   function describe(s) {
-    if (s.dead) return { health: 0, status: "KIA" };
+    if (s.dead) return s.exited ? { health: s.hp, status: "EXITED" } : { health: 0, status: "KIA" };
     return {
       health: s.hp,
       status: s.hp > 60 ? "OK" : s.hp > 30 ? "WOUNDED" : "CRITICAL",
@@ -1222,7 +1234,7 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
 
   // Short code for the squad list on screen
   function shortCode(s) {
-    if (s.dead) return "KIA";
+    if (s.dead) return s.exited ? "OUT" : "KIA";
     if (s.instinct === "panic") return "FLEE!";
     if (s.instinct) return "FIRE!";
     if (s.flee) return "RTRT";
@@ -1244,6 +1256,6 @@ function createSquadBrain({ nav, soldiers: everyone, aliens, killAlien, killSold
 
   return {
     tick(dt) { now += dt; },
-    update, arrived, shot, hurt, order, findUnits, describe, squadStatus, shortCode,
+    update, arrived, shot, hurt, leave, order, findUnits, describe, squadStatus, shortCode,
   };
 }

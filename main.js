@@ -6,9 +6,10 @@
 // ---------- Config ----------
 // The squad. One AI agent (on the player's machine) commands and voices all of them.
 // color: the unit's dot on the tactical map (and a hint of it in the squad console)
+// female: which death scream plays (sounds/shouting_female.wav or shouting_male.wav)
 const SQUAD = [
   { id: 1, name: "SGT. R. FROST", callsign: "FROST", color: "#ffa040" },
-  { id: 2, name: "CPL. J. VASQUEZ", callsign: "VASQUEZ", color: "#4fd8ff" },
+  { id: 2, name: "CPL. J. VASQUEZ", callsign: "VASQUEZ", color: "#4fd8ff", female: true },
   { id: 3, name: "PVT. W. HUDSON", callsign: "HUDSON", color: "#ff6fa8" },
   { id: 4, name: "PVT. M. DRAKE", callsign: "DRAKE", color: "#c09bff" },
 ];
@@ -707,6 +708,16 @@ function startSector([sx, sy], from = null, carry = null) {
     sound.gunfire(times, {
       volume: s === viewer ? 1 : Math.max(0.06, 0.8 / (1 + d / 4)),
       muffle: s === viewer ? 9000 : Math.max(500, 5000 / (1 + d / 5)),
+    });
+  };
+  // A soldier killed: their scream, as loud and clear as their gunfire would be from where the camera is
+  world.onSoldierDown = (s) => {
+    const viewer = world.soldiers[selected];
+    const d = s === viewer ? 0 : s.camera.position.distanceTo(viewer.camera.position);
+    const female = !!(SQUAD.find((u) => u.id === s.id) || {}).female;
+    sound.scream(female ? "female" : "male", {
+      volume: s === viewer ? 1 : Math.max(0.15, 0.9 / (1 + d / 6)),
+      muffle: s === viewer ? 12000 : Math.max(800, 6000 / (1 + d / 6)),
     });
   };
   // The agent voices events; with no agent linked the soldiers (or MOTHER) call them in themselves

@@ -1,6 +1,7 @@
 "use strict";
 
-// CRT / radio static, gunfire, radio bursts and suspense music, generated with the Web Audio API (no sound files).
+// CRT / radio static, gunfire, radio bursts and suspense music, generated with the Web Audio API. The only sound
+// files are the death screams (sounds/shouting_*.wav), loaded once the audio starts.
 // Browsers only allow audio after a user gesture: start() is called on load and again on the first click or key press.
 function createStaticAudio() {
   let ctx = null;
@@ -8,6 +9,8 @@ function createStaticAudio() {
   let enabled = true;
   let gunBus = null, noiseBuf = null;
   let music = null; // the suspense score (see buildMusic)
+  const SCREAMS = { male: "sounds/shouting_male.wav", female: "sounds/shouting_female.wav" };
+  const screams = {}; // kind -> decoded AudioBuffer (missing until loaded, or if it can't be, e.g. from file://)
 
   function build() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -58,6 +61,17 @@ function createStaticAudio() {
     hum.start();
     buildGun();
     buildMusic();
+    loadScreams();
+  }
+
+  function loadScreams() {
+    for (const [kind, url] of Object.entries(SCREAMS)) {
+      fetch(url)
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+        .then((data) => new Promise((ok, fail) => ctx.decodeAudioData(data, ok, fail)))
+        .then((buf) => { screams[kind] = buf; })
+        .catch((err) => console.warn(`Scream not loaded (${url}):`, err));
+    }
   }
 
   // ---------- Suspense music ----------
@@ -378,6 +392,20 @@ function createStaticAudio() {
         n.stop(end + 0.05);
       }
       burst(end + 0.01, 0.05, 0.7); // closing click
+    },
+    // A soldier dying: kind "male" or "female"; volume 0..1; muffle = low-pass cutoff in Hz (distance)
+    scream(kind, { volume = 1, muffle = 12000 } = {}) {
+      if (!ctx || !enabled || !screams[kind]) return;
+      const src = ctx.createBufferSource();
+      src.buffer = screams[kind];
+      src.playbackRate.value = 0.95 + Math.random() * 0.1; // not quite the same every time
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = muffle;
+      const g = ctx.createGain();
+      g.gain.value = volume;
+      src.connect(lp).connect(g).connect(master);
+      src.start(ctx.currentTime + 0.02);
     },
     // How tense the music should be: 0 (quiet) .. 1 (hostiles on top of the squad)
     setTension(t) {

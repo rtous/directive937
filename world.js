@@ -347,6 +347,7 @@ function createWorld(width, height, squad, level, carry = null) {
 
   let onEvent = () => {};
   let onFire = () => {}; // (soldier, shot times in seconds from now)
+  let onSoldierDown = () => {}; // (soldier): just killed
   let onMissionEnd = () => {};
   let disposed = false;
 
@@ -453,6 +454,7 @@ function createWorld(width, height, squad, level, carry = null) {
     scene.remove(s.body);
     s.muzzle.light.intensity = 0;
     splash(s.body.position.x, s.body.position.z);
+    onSoldierDown(s);
   }
 
   // ---------- Minds ----------
@@ -773,6 +775,7 @@ function createWorld(width, height, squad, level, carry = null) {
     hurt: (unit, amount) => brain.findUnits(unit).forEach((s) => brain.hurt(s, amount)),
     set onEvent(fn) { onEvent = fn; },
     set onFire(fn) { onFire = fn; },
+    set onSoldierDown(fn) { onSoldierDown = fn; },
     set onMissionEnd(fn) { onMissionEnd = fn; },
   };
 }

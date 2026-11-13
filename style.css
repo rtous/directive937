@@ -33,19 +33,18 @@ html, body {
   padding: 12px;
   display: grid;
   gap: 10px;
-  grid-template-columns: 410px 1fr 280px;
-  grid-template-rows: auto 1fr auto;
+  grid-template-columns: minmax(360px, 0.55fr) minmax(560px, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "top top top"
-    "left center right"
-    "bottom bottom bottom";
+    "top top"
+    "left right"
+    "bottom bottom";
   background:
     radial-gradient(ellipse at center, rgba(5, 182, 105, 0.06), transparent 70%),
     var(--deep);
 }
 .topbar { grid-area: top; }
 .left { grid-area: left; }
-.center { grid-area: center; }
 .right { grid-area: right; }
 .bottombar { grid-area: bottom; }
 
@@ -106,57 +105,29 @@ h2 {
 .audio-btn.on { color: var(--seegson); }
 .audio-btn:hover { color: var(--hypersleep); }
 
-/* ---------- Roster ---------- */
-.roster { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
+/* ---------- Squad (bottom of the right column): one chip per soldier, then one bar of orders ---------- */
+.squad-panel { flex: none; padding-bottom: 8px; }
+.squad-panel h2 { margin-bottom: 8px; }
+.squad-panel h2 b { color: var(--seegson); font-weight: normal; }
+.roster { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; font-size: 11px; }
 .roster li {
-  display: grid;
-  grid-template-columns: 14px 22px 1fr auto auto;
-  gap: 4px 8px;
+  display: flex;
   align-items: center;
+  gap: 6px;
   padding: 4px 6px;
-  border: 1px solid transparent;
-}
-.roster li span { color: var(--unit, var(--synthetic)); opacity: 0.85; }
-.roster li { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--unit, transparent) 55%, transparent); }
-.roster li em { font-style: normal; color: var(--seegson); }
-.roster li { cursor: pointer; }
-.roster li:hover { border-color: var(--line); }
-.roster li b { font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.roster li.active { border-color: var(--seegson); background: var(--terminal); }
-.roster li.warn em { color: var(--acid); animation: blink 1s steps(1) infinite; }
-/* console buttons: HOLD / SLOW / RUN, lit while active */
-.roster .ctl { display: inline-flex; gap: 3px; grid-column: 3 / -1; grid-row: 2; } /* on a line of its own under the name */
-.roster .ctl button {
-  background: transparent;
   border: 1px solid var(--line);
-  color: var(--synthetic);
-  font: inherit;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  padding: 1px 4px;
   cursor: pointer;
+  min-width: 0;
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--unit, transparent) 70%, transparent);
 }
-.roster .ctl button:hover:not(:disabled):not(.on) { border-color: var(--seegson); color: var(--seegson); }
-.roster .ctl button.on:hover { filter: brightness(1.15); }
-.roster .ctl button.on { background: var(--seegson); border-color: var(--seegson); color: var(--deep); }
-.roster .ctl button:disabled { opacity: 0.3; cursor: default; }
-/* who the soldier follows */
-.roster .ctl select {
-  background: var(--deep);
-  border: 1px solid var(--line);
-  color: var(--synthetic);
-  font: inherit;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  padding: 0 2px;
-  width: 92px; /* same width in every row */
-  cursor: pointer;
-}
-.roster .ctl select:hover:not(:disabled) { border-color: var(--seegson); color: var(--seegson); }
-.roster .ctl select:disabled { opacity: 0.3; cursor: default; }
+.roster li > span { color: var(--unit, var(--synthetic)); opacity: 0.85; }
+.roster li b { font-weight: normal; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roster li:hover { border-color: var(--seegson); }
+.roster li:has(.pick:checked) { border-color: var(--seegson); background: var(--terminal); }
 /* selection checkboxes: one per soldier and one for the whole squad (in the panel title) */
 .roster input[type="checkbox"], .sel-all input {
   appearance: none;
+  flex: none;
   width: 11px; height: 11px;
   margin: 0;
   border: 1px solid var(--seegson);
@@ -170,47 +141,53 @@ h2 {
 .roster input[type="checkbox"]:disabled { opacity: 0.3; cursor: default; }
 .sel-all { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 
-/* orders for every selected soldier at once, plus a direction pad */
-.group-orders { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 10px; }
-.go-head { color: var(--synthetic); letter-spacing: 0.14em; margin-bottom: 6px; }
-.go-head b { color: var(--seegson); font-weight: normal; }
-.go-body { display: flex; gap: 10px; align-items: center; }
-.go-buttons { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-.group-orders button {
+/* orders for the ticked soldiers (or the one on camera): squad + buttons on the left, a big direction pad on the right */
+.group-orders { display: flex; gap: 12px; align-items: stretch; font-size: 10px; }
+.squad-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.squad-main h2 { margin-bottom: 0; }
+.go-buttons { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.group-orders button, .group-orders select {
   background: transparent;
   border: 1px solid var(--line);
   color: var(--hypersleep);
   font: inherit;
   font-size: 9px;
   letter-spacing: 0.06em;
-  padding: 3px 2px;
+  padding: 4px 2px;
   cursor: pointer;
   white-space: nowrap;
+  min-width: 0;
 }
-.group-orders button:hover:not(:disabled) { border-color: var(--seegson); color: var(--seegson); }
+.group-orders select { background: var(--deep); color: var(--seegson); padding: 3px 2px; }
+.group-orders button:hover:not(:disabled), .group-orders select:hover:not(:disabled) { border-color: var(--seegson); color: var(--seegson); }
 .group-orders button:active:not(:disabled) { background: var(--seegson); color: var(--deep); }
-.group-orders button:disabled { opacity: 0.3; cursor: default; }
-.dpad { display: grid; grid-template-columns: repeat(3, 22px); grid-template-rows: repeat(3, 20px); gap: 2px; }
-.dpad button { padding: 0; font-size: 10px; color: var(--seegson); }
+.group-orders button.on { background: var(--seegson); border-color: var(--seegson); color: var(--deep); }
+.group-orders button:disabled, .group-orders select:disabled { opacity: 0.3; cursor: default; }
+/* the direction pad: as tall as the whole panel */
+.dpad {
+  flex: none;
+  align-self: center;
+  display: grid;
+  grid-template-columns: repeat(3, 38px);
+  grid-template-rows: repeat(3, 38px);
+  gap: 3px;
+  padding-left: 12px;
+  border-left: 1px dashed var(--line);
+}
+.dpad button { padding: 0; font-size: 18px; color: var(--seegson); background: var(--deep); }
+.dpad .c { font-size: 12px; }
 .dpad .n { grid-area: 1 / 2; }
 .dpad .w { grid-area: 2 / 1; }
-.dpad .c { grid-area: 2 / 2; font-size: 8px; }
+.dpad .c { grid-area: 2 / 2; }
 .dpad .e { grid-area: 2 / 3; }
 .dpad .s { grid-area: 3 / 2; }
 
-/* distress-signal strength: five small rising bars */
-.roster .sos { display: inline-flex; align-items: flex-end; gap: 1px; height: 10px; opacity: 0.85; }
-.roster .sos i { width: 2px; background: var(--line); }
-.roster .sos i.on { background: #fff3a0; }
-.roster .sos i:nth-child(1) { height: 2px; }
-.roster .sos i:nth-child(2) { height: 4px; }
-.roster .sos i:nth-child(3) { height: 6px; }
-.roster .sos i:nth-child(4) { height: 8px; }
-.roster .sos i:nth-child(5) { height: 10px; }
-
 /* ---------- Tactical map ---------- */
-.map-panel { margin-top: auto; } /* sit in the bottom corner */
+/* left: map over comms; right: camera, a one-line biomonitor, the squad controls */
+.map-panel { flex: 1.2 1 0; min-height: 0; display: flex; flex-direction: column; }
 .map-crt {
+  flex: 1;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   border-radius: 8% / 8%;
@@ -218,63 +195,63 @@ h2 {
   box-shadow: 0 0 0 2px #000, inset 0 0 30px rgba(0, 0, 0, 0.9);
   animation: crt-flicker 0.15s infinite;
 }
-#map {
+#map { /* the drawing buffer follows this size (see main.js) */
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  height: 100%;
   filter: blur(0.3px);
 }
 .map-crt .crt-scanlines {
   background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.5) 0 1px, transparent 1px 3px);
 }
 
-/* ---------- Vitals CRT (small second screen) ---------- */
-.crt-bezel.small { flex: none; padding: 10px; border-radius: 10px; }
-.crt.small {
+/* ---------- Biomonitor: one slim line under the camera ---------- */
+.vitals-panel { flex: none; padding: 5px; }
+.vitals-panel::before { display: none; }
+.crt-bezel.strip { flex: none; padding: 4px; border-radius: 7px; }
+.crt.strip {
   width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
+  height: 30px;
+  aspect-ratio: auto;
+  border-radius: 8px / 50%;
   animation-duration: 0.17s;
 }
-#ecg, #vitals-noise {
-  position: absolute;
-  left: 0; right: 0;
-  width: 100%;
-}
-#ecg { top: 14%; height: 34%; filter: blur(0.4px); }
+.crt.strip .crt-vignette { box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.9); background: none; }
 #vitals-noise {
-  top: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
   image-rendering: pixelated;
-  opacity: 0.22;
+  opacity: 0.18;
   mix-blend-mode: screen;
   pointer-events: none;
 }
 .vitals-osd {
   position: absolute;
   inset: 0;
-  padding: 5% 8%;
+  padding: 0 12px;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   font-family: var(--crt-font);
+  font-size: 15px;
+  white-space: nowrap;
   color: #fff;
   text-shadow: 0 0 4px rgba(255, 255, 255, 0.7), 1px 0 0 rgba(255, 60, 60, 0.35), -1px 0 0 rgba(60, 200, 255, 0.35);
   pointer-events: none;
   animation: osd-jitter 4s infinite;
 }
-.vitals-head { display: flex; justify-content: space-between; font-size: 15px; }
-.ecg-label { color: var(--seegson); text-shadow: 0 0 4px var(--seegson); }
-.vitals-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px 6px;
-}
-.vitals-grid div { display: flex; flex-direction: column; line-height: 1; }
-.vitals-grid span { font-size: 12px; opacity: 0.7; }
-.vitals-grid b { font-size: 22px; font-weight: normal; }
-.vitals-grid small { font-size: 10px; opacity: 0.55; }
-.vitals-grid b.alert { color: var(--acid); text-shadow: 0 0 5px var(--acid); animation: blink 0.8s steps(1) infinite; }
+#vitals-title { color: var(--seegson); text-shadow: 0 0 4px var(--seegson); }
+.ecg-wrap { position: relative; flex: 1 1 40px; min-width: 40px; align-self: stretch; }
+#ecg { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(0.4px); }
+.vitals-row { display: flex; gap: 12px; align-items: baseline; }
+.vitals-row span { color: rgba(255, 255, 255, 0.55); font-size: 13px; }
+.vitals-row b { font-weight: normal; font-size: 17px; color: #fff; }
+#vstatus { min-width: 7ch; text-align: right; color: var(--seegson); text-shadow: 0 0 4px var(--seegson); }
+.vitals-row b.alert, #vstatus.alert { color: var(--acid); text-shadow: 0 0 5px var(--acid); animation: blink 0.8s steps(1) infinite; }
 
 /* ---------- Comms ---------- */
 .comms { display: flex; flex-direction: column; }
@@ -337,6 +314,15 @@ h2 {
 .comms-form button:hover { border-color: var(--seegson); }
 
 .agent-pill { color: var(--acid); }
+.link-btn {
+  background: none;
+  font-family: inherit;
+  letter-spacing: inherit;
+  color: var(--cryo);
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--hypersleep); }
+.link-btn.on { color: var(--synthetic); }
 .setup-btn {
   color: var(--deep);
   background: var(--seegson);
@@ -354,7 +340,54 @@ h2 {
 .ticker span { display: inline-block; padding-left: 100%; animation: ticker 45s linear infinite; }
 
 /* ---------- CRT camera ---------- */
-.center { display: flex; flex-direction: column; min-height: 0; }
+.cam-panel { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.cam-panel .crt-bezel { padding: 12px; }
+.cam-row { flex: 1; min-height: 0; display: flex; gap: 10px; }
+/* the four big camera buttons, stacked to the right of the monitor */
+.cam-select { flex: 0 0 132px; display: flex; flex-direction: column; gap: 8px; }
+.cam-select button {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 12px;
+  background: var(--deep);
+  border: 1px solid var(--line);
+  border-left: 4px solid color-mix(in srgb, var(--unit) 70%, transparent);
+  color: var(--hypersleep);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cam-select .cs-id { font-family: var(--crt-font); font-size: 34px; line-height: 0.9; color: var(--unit); }
+.cam-select b { font-weight: normal; font-size: 12px; letter-spacing: 0.12em; }
+.cam-select em { font-style: normal; font-size: 10px; color: var(--synthetic); letter-spacing: 0.08em; }
+.cam-select button:hover { border-color: var(--seegson); border-left-color: var(--unit); }
+.cam-select button.active {
+  background: var(--terminal);
+  border-color: var(--seegson);
+  border-left-color: var(--unit);
+  box-shadow: inset 0 0 18px color-mix(in srgb, var(--unit) 22%, transparent);
+}
+.cam-select button.active em { color: var(--seegson); }
+.cam-select .cs-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; min-height: 13px; }
+.cam-select .cs-tags i {
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 0 4px;
+  line-height: 13px;
+  border: 1px solid var(--line);
+  color: var(--cryo);
+}
+.cam-select .cs-tags i:empty { display: none; }
+.cam-select .cs-mode { background: var(--seegson); border-color: var(--seegson) !important; color: var(--deep) !important; }
+.cam-select .cs-mode[data-mode="hold"] { background: var(--acid); border-color: var(--acid) !important; }
+.cam-select button.dead { opacity: 0.45; }
+.cam-select button.dead em { color: var(--acid); }
 .rec { color: var(--acid); animation: blink 1.2s steps(1) infinite; }
 
 .crt-bezel {
@@ -472,14 +505,22 @@ h2 {
 }
 
 /* ---------- Narrow screens ---------- */
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   html, body { overflow: auto; }
   .console {
     height: auto;
     grid-template-columns: 1fr;
-    grid-template-areas: "top" "center" "left" "right" "bottom";
+    grid-template-areas: "top" "right" "left" "bottom";
   }
+  .cam-panel { flex: none; }
   .crt { height: auto; width: 100%; }
+  .cam-row { flex-direction: column; }
+  .cam-select { flex: none; flex-direction: row; }
+  .cam-select .cs-id { font-size: 24px; }
+  .roster { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vitals-id, .ecg-wrap { display: none; }
+  .map-panel { flex: none; height: 70vw; }
+  .comms { flex: none; height: 320px; }
   .brand .dim { display: none; }
 }
 

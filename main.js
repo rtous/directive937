@@ -189,7 +189,7 @@ function renderEcg(dt) {
     beatPhase += (vitals[selected].bpm / 60) * (dt / 1000) / steps;
     if (beatPhase >= 1) beatPhase -= 1;
     const flat = world && world.soldiers[selected].dead; // flatline
-    const y = ecg.height * 0.6 - (flat ? 0 : ecgSample(beatPhase)) * 1.4 + rand(-0.6, 0.6);
+    const y = ecg.height * 0.6 - (flat ? 0 : ecgSample(beatPhase)) * (ecg.height / 64) + rand(-0.6, 0.6);
     // erase just ahead of the sweep so the old trace gets overwritten
     ectx.clearRect(ecgX, 0, 10, ecg.height);
     ectx.strokeStyle = "#05b669";
@@ -260,6 +260,18 @@ let mapLayer = null; // the colony outline, drawn once
 // redraw once the VT323 font has loaded so the room labels use it
 if (document.fonts) document.fonts.ready.then(() => { mapLayer = null; });
 let mapGeom = null;
+
+// The map and ECG canvases draw at the size they are shown, so they stay sharp whatever the layout.
+function fitCanvas(c, onResize) {
+  const fit = () => {
+    const w = Math.round(c.clientWidth), h = Math.round(c.clientHeight);
+    if (w > 0 && h > 0 && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; onResize(); }
+  };
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(c); else window.addEventListener("resize", fit);
+  fit();
+}
+fitCanvas(mapCanvas, () => { mapLayer = null; });
+fitCanvas(ecg, () => { ecgX = 0; ecgPrevY = ecg.height / 2; });
 
 function buildMapLayer() {
   const mw = mapCanvas.width;
@@ -471,14 +483,27 @@ function addLog(text, kind = "ambient", who = "") {
 // bridge -> game: Server-Sent Events. game -> bridge: POST.
 const BRIDGE_URL = (new URLSearchParams(location.search).get("bridge") || "http://127.0.0.1:8937").replace(/\/$/, "");
 const agentPill = $("agent-pill");
+const linkBtn = $("link-btn");
 let stream = null;
 let bridgeOpen = false;
 let agentListening = false;
+// The game only reaches for the bridge once the player presses LINK AGENT (connecting to localhost can make the
+// browser ask for permission, which players without an agent shouldn't see). The choice is remembered, so a
+// reload or a mission restart links again by itself; UNLINK forgets it.
+const LINK_KEY = "directive937.agentLink";
+let wantLink = false;
+let retryTimer = null;
 
 function setAgentPill() {
-  agentPill.classList.remove("linked", "listening");
-  if (!bridgeOpen) {
+  agentPill.classList.remove("linked", "listening", "busy");
+  linkBtn.textContent = wantLink ? "UNLINK" : "LINK AGENT";
+  linkBtn.classList.toggle("on", wantLink);
+  linkBtn.title = wantLink ? "Disconnect from your AI agent" : "Connect to your AI agent (start it first: see AGENT SETUP)";
+  if (!wantLink) {
     agentPill.textContent = "AGENT: OFFLINE";
+  } else if (!bridgeOpen) {
+    agentPill.textContent = "AGENT: CONNECTING";
+    agentPill.classList.add("busy");
   } else if (agentListening) {
     agentPill.textContent = "AGENT: STANDING BY";
     agentPill.classList.add("listening");
@@ -565,6 +590,7 @@ function speakerLabel(speaker) {
 }
 
 function connectBridge() {
+  if (!wantLink) return;
   stream = new EventSource(`${BRIDGE_URL}/game/stream`);
   stream.onopen = () => {
     bridgeOpen = true;
@@ -576,9 +602,10 @@ function connectBridge() {
     agentListening = false;
     setAgentPill();
     // EventSource retries on its own unless the bridge refused us outright
-    if (stream.readyState === EventSource.CLOSED) {
+    if (stream && stream.readyState === EventSource.CLOSED) {
       stream.close();
-      setTimeout(connectBridge, 5000);
+      stream = null;
+      retryTimer = setTimeout(connectBridge, 5000);
     }
   };
   stream.onmessage = (e) => {
@@ -599,7 +626,24 @@ function connectBridge() {
     }
   };
 }
-connectBridge();
+function linkAgent(on) {
+  wantLink = on;
+  try { if (on) localStorage.setItem(LINK_KEY, "1"); else localStorage.removeItem(LINK_KEY); } catch {}
+  clearTimeout(retryTimer);
+  if (on) {
+    if (!stream) connectBridge();
+  } else {
+    if (stream) stream.close();
+    stream = null;
+    bridgeOpen = false;
+    agentListening = false;
+  }
+  setAgentPill();
+}
+linkBtn.addEventListener("click", () => linkAgent(!wantLink));
+let linkedBefore = false;
+try { linkedBefore = localStorage.getItem(LINK_KEY) === "1"; } catch {}
+linkAgent(linkedBefore);
 
 if (world) {
   // Gunfire: loud from the soldier on camera, quieter and duller from the others the further away they are
@@ -641,7 +685,9 @@ $("comms-form").addEventListener("submit", (e) => {
   addLog(text, "player", "CONTROL");
   sound.radio({ kind: "player" });
   if (!bridgeOpen) {
-    addLog("NO AGENT LINK. OPEN AGENT SETUP (TOP BAR) TO CONNECT YOUR AI AGENT.", "alert");
+    addLog(wantLink
+      ? "AGENT NOT CONNECTED YET. IS IT RUNNING? SEE AGENT SETUP (TOP BAR)."
+      : "NO AGENT LINK. START YOUR AI AGENT (SEE AGENT SETUP), THEN PRESS LINK AGENT (TOP BAR).", "alert");
     return;
   }
   sendBridge({ type: "player_message", to: "all", text, status: fullStatus() });
@@ -651,32 +697,37 @@ $("comms-form").addEventListener("submit", (e) => {
 const rosterEl = $("roster");
 const rosterItems = SQUAD.map((u, i) => {
   const li = document.createElement("li");
-  li.innerHTML = `<input type="checkbox" class="pick" title="Select for group orders"><span>${pad(u.id)}</span><b></b>` +
-    `<span class="ctl"><button type="button" data-act="hold" title="Stop and look around (press again to carry on)">HOLD</button>` +
-    `<button type="button" data-act="slow" title="Move slowly and carefully">SLOW</button>` +
-    `<button type="button" data-act="run" title="Run">RUN</button>` +
-    `<select class="fol" title="Who this soldier follows (NONE: acts on their own)"><option value="">FOL NONE</option>` +
-    SQUAD.map((o, k) => (k === i ? "" : `<option value="${k}">FOL ${o.callsign}</option>`)).join("") + `</select></span>` +
-    `<span class="sos" title="Distress signal strength"><i></i><i></i><i></i><i></i><i></i></span><em></em>`;
+  li.innerHTML = `<input type="checkbox" class="pick" title="Select for orders"><span>${pad(u.id)}</span><b></b>`;
   li.style.setProperty("--unit", u.color);
-  li.querySelector("b").textContent = u.name;
-  li.title = "Show this soldier's helmet camera";
-  li.addEventListener("click", () => selectUnit(i));
+  li.querySelector("b").textContent = u.callsign;
+  li.title = `${u.name}: tick to give orders`;
   const pick = li.querySelector(".pick");
-  pick.addEventListener("click", (e) => e.stopPropagation()); // ticking a box doesn't switch the camera
+  // the whole chip ticks the box (the camera is picked with the big buttons beside the monitor)
+  li.addEventListener("click", (e) => {
+    if (e.target === pick || pick.disabled) return;
+    pick.checked = !pick.checked;
+    updateSelection();
+  });
   pick.addEventListener("change", updateSelection);
-  const fol = li.querySelector(".fol");
-  fol.addEventListener("click", (e) => e.stopPropagation()); // choosing a leader doesn't switch the camera
-  fol.addEventListener("change", () => setLeader(i, fol.value));
-  li.querySelectorAll(".ctl button").forEach((btn) => btn.addEventListener("click", (e) => {
-    e.stopPropagation(); // a button press doesn't switch the camera
-    groupOrder(btn.dataset.act, [i]);
-  }));
   rosterEl.appendChild(li);
   return li;
 });
 
-// Distress signal each soldier's detector picks up, with a little flicker; shown on the monitor and in the squad list
+// Big buttons beside the monitor: whose helmet camera is on screen
+const camButtons = SQUAD.map((u, i) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.style.setProperty("--unit", u.color);
+  b.innerHTML = `<span class="cs-id">${pad(u.id)}</span><b></b><em></em>` +
+    `<span class="cs-tags"><i class="cs-mode"></i><i class="cs-fol"></i></span>`;
+  b.querySelector("b").textContent = u.callsign;
+  b.title = `${u.name}: show helmet camera`;
+  b.addEventListener("click", () => selectUnit(i));
+  $("cam-select").appendChild(b);
+  return b;
+});
+
+// Distress signal each soldier's detector picks up, with a little flicker; shown on the monitor
 const sosBars = (pct) => (pct <= 0 ? 0 : Math.min(5, 1 + Math.floor(pct / 20)));
 function updateDistress() {
   if (!world) return;
@@ -684,7 +735,6 @@ function updateDistress() {
     const pct = world.mission.signal(s);
     const shown = pct > 0 ? Math.max(1, Math.min(100, pct + Math.round(rand(-3, 3)))) : 0;
     const bars = sosBars(shown);
-    rosterItems[i].querySelectorAll(".sos i").forEach((b, k) => b.classList.toggle("on", k < bars));
     if (i !== selected) return;
     const el = $("osd-sos");
     if (s.dead) el.textContent = "SOS --";
@@ -715,28 +765,26 @@ function gameTension() {
 
 function updateRoster() {
   rosterItems.forEach((li, i) => {
-    li.classList.toggle("active", i === selected);
-    const order = world ? world.shortOrder(world.soldiers[i]) : "--";
-    li.querySelector("em").textContent = i === selected ? `CAM ${order}` : order;
-    // the buttons show the soldier's actual state, whoever gave the order (these buttons or the agent)
     const s = world && world.soldiers[i];
-    const mode = s && !s.dead ? modeOf(s) : null;
-    li.querySelectorAll(".ctl button").forEach((b) => {
-      b.classList.toggle("on", b.dataset.act === mode);
-      b.disabled = !s || s.dead || world.mission.over;
-    });
-    // who they follow, kept in step with the game (orders from the agent change it too); not while it's being picked
-    const fol = li.querySelector(".fol");
-    if (document.activeElement !== fol) fol.value = s && !s.dead && s.leader ? String(world.soldiers.indexOf(s.leader)) : "";
-    fol.disabled = !s || s.dead || world.mission.over;
-    for (const o of fol.options) if (o.value) o.disabled = !world || world.soldiers[+o.value].dead;
+    const cb = camButtons[i];
+    cb.classList.toggle("active", i === selected);
+    cb.classList.toggle("dead", !!(s && s.dead));
+    cb.querySelector("em").textContent = s && s.dead ? "NO SIGNAL" : `HP ${s ? s.hp : "--"}`;
+    // how they move (HOLD / SLOW / RUN; nothing at normal pace) and who they follow
+    const live = s && !s.dead;
+    const mode = live ? modeOf(s) : "normal";
+    const modeTag = cb.querySelector(".cs-mode");
+    modeTag.textContent = mode === "normal" ? "" : mode.toUpperCase();
+    modeTag.dataset.mode = mode;
+    const leaderIdx = live && s.leader ? world.soldiers.indexOf(s.leader) : -1;
+    cb.querySelector(".cs-fol").textContent = leaderIdx >= 0 ? `FOL ${SQUAD[leaderIdx].callsign}` : "";
     const pick = li.querySelector(".pick");
     if (s && s.dead && !pick.disabled) { pick.checked = false; pick.disabled = true; }
   });
   updateSelection();
 }
 
-// Who a soldier follows, from the selector in their row. "" = nobody: they stop and hold until given an order.
+// Who a soldier follows, from the FOLLOW selector in the orders bar. "" = nobody: they stop and hold until given an order.
 // A follower goes wherever their leader is, however far (running to catch up), unless there's no way through.
 function setLeader(i, leader) {
   if (!world || world.mission.over || world.soldiers[i].dead) return;
@@ -796,8 +844,8 @@ function setMode(units, mode) {
 }
 
 // ---------- Group orders ----------
-// The ticked soldiers get the orders from the buttons and the direction pad under the squad list
-// (the buttons in each row do the same for that soldier alone).
+// The ticked soldiers (or, with none ticked, the one on the monitor) get the orders from the buttons,
+// the FOLLOW selector and the direction pad under the squad list.
 // Same orders the agent gives; each one shows in the comms log and is reported to the agent.
 const selAll = $("sel-all");
 const picks = rosterItems.map((li) => li.querySelector(".pick"));
@@ -823,11 +871,26 @@ function updateSelection() {
   const idx = targetIdx();
   $("sel-count").textContent = n === 0 ? (idx.length ? `${SQUAD[selected].callsign} (ON CAMERA)` : "NOBODY")
     : n === live.length ? "ALL SELECTED" : `${n} SELECTED`;
-  // The group buttons are plain push buttons: they never stay lit. What they change shows on each soldier's own
-  // HOLD / SLOW / RUN buttons in the list above.
   const off = !idx.length || !world || world.mission.over;
   document.querySelectorAll("#group-orders button").forEach((b) => { b.disabled = off; });
+  followSel.disabled = off;
+  // HOLD / SLOW / RUN light up while every one of them is in that mode (whoever gave the order: buttons or agent)
+  const mode = off ? null : sharedMode(idx.filter((i) => !world.soldiers[i].dead));
+  document.querySelectorAll("#group-orders .go-buttons button, #group-orders .dpad .c").forEach((b) => {
+    b.classList.toggle("on", MODES.includes(b.dataset.act) && b.dataset.act === mode);
+  });
+  for (const o of followSel.options) if (o.value !== "-" && o.value !== "") o.disabled = !world || world.soldiers[+o.value].dead;
 }
+// FOLLOW selector: a one-shot order, it goes back to its label once used
+const followSel = $("go-follow");
+followSel.innerHTML = `<option value="-">FOLLOW…</option><option value="">FOLLOW NOBODY</option>` +
+  SQUAD.map((o, k) => `<option value="${k}">FOLLOW ${o.callsign}</option>`).join("");
+followSel.addEventListener("change", () => {
+  const v = followSel.value;
+  followSel.value = "-";
+  if (v === "-") return;
+  targetIdx().forEach((i) => { if (String(i) !== v) setLeader(i, v); });
+});
 selAll.addEventListener("change", () => {
   picks.forEach((p) => { if (!p.disabled) p.checked = selAll.checked; });
   updateSelection();
@@ -879,7 +942,7 @@ function selectUnit(i) {
   $("soldier-name").textContent = u.name;
   $("osd-channel").textContent = `CH-${pad(u.id)}`;
   $("vitals-name").textContent = u.name;
-  $("vitals-title").textContent = `BIOMONITOR // UNIT ${pad(u.id)}`;
+  $("vitals-title").textContent = `UNIT ${pad(u.id)}`;
   $("cam-title").firstChild.textContent = `HELMET CAM // UNIT ${pad(u.id)} `;
   switchUntil = performance.now() + 350;
   updateRoster();

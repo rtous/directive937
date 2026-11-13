@@ -21,100 +21,18 @@
         <span class="dim">SHIP TIME</span> <span id="ship-clock">--:--:--</span>
         <button class="status-pill audio-btn on" id="audio-btn" title="Toggle sound">AUDIO ON</button>
         <span class="status-pill agent-pill" id="agent-pill" title="Connection to your local AI agent">AGENT: OFFLINE</span>
+        <button class="status-pill link-btn" id="link-btn" type="button">LINK AGENT</button>
         <a href="agent.html" target="_blank" class="status-pill setup-btn" title="Connect your AI agent">⚙ AGENT SETUP</a>
       </div>
     </header>
 
     <aside class="col left">
-      <section class="panel">
-        <h2><label class="sel-all" title="Select the whole squad"><input type="checkbox" id="sel-all"> SQUAD</label> <span class="dim">CLICK = CAM</span></h2>
-        <ul class="roster" id="roster"></ul>
-        <div class="group-orders" id="group-orders">
-          <div class="go-head"><span>ORDERS // <b id="sel-count">NONE</b></span></div>
-          <div class="go-body">
-            <div class="go-buttons">
-              <button type="button" data-act="hold" title="Stop and look around (press again to carry on)">HOLD</button>
-              <button type="button" data-act="slow" title="Move slowly: see further, aim better (press again for normal pace)">SLOW</button>
-              <button type="button" data-act="run" title="Run: faster, but see less (press again for normal pace)">RUN</button>
-              <button type="button" data-act="alert" title="Stop and look in all directions for 5 seconds, then carry on">ALERT</button>
-              <button type="button" data-act="inspect" title="Check the room they're in (or the nearest one): walk to a few spots and look around at each">INSPECT ROOM</button>
-              <button type="button" data-act="retreat" title="Fall back from the hostiles">RETREAT</button>
-              <button type="button" data-act="together" title="Regroup behind the lowest-numbered unit">TOGETHER</button>
-              <button type="button" data-act="spread" title="Fan out across the room and act independently">SPREAD</button>
-            </div>
-            <div class="dpad" title="Send the selected soldiers as far as possible in that direction">
-              <button type="button" data-act="north" class="n" title="Head north">▲</button>
-              <button type="button" data-act="west" class="w" title="Head west">◀</button>
-              <button type="button" data-act="hold" class="c" title="Hold (press again to carry on)">■</button>
-              <button type="button" data-act="east" class="e" title="Head east">▶</button>
-              <button type="button" data-act="south" class="s" title="Head south">▼</button>
-            </div>
-          </div>
-        </div>
-      </section>
       <section class="panel map-panel">
         <h2>TACTICAL MAP <span id="map-coords" class="dim">--</span></h2>
         <div class="map-crt">
           <canvas id="map" width="440" height="330"></canvas>
           <div class="crt-scanlines"></div>
           <div class="crt-vignette"></div>
-        </div>
-      </section>
-    </aside>
-
-    <main class="col center panel">
-      <h2 id="cam-title">HELMET CAM // UNIT 01 <span class="rec">● REC</span></h2>
-      <div class="crt-bezel">
-        <div class="crt" id="crt">
-          <canvas id="feed" width="320" height="240"></canvas>
-          <div class="crt-scanlines"></div>
-          <div class="crt-roll"></div>
-          <div class="crt-vignette"></div>
-          <div class="crt-osd">
-            <div class="osd-top">
-              <span id="osd-channel">CH-01</span>
-              <span id="osd-sos" title="Distress signal from the survivor">SOS ▯▯▯▯▯ --</span>
-            </div>
-            <div class="osd-msg" id="osd-msg"></div>
-            <div class="mission-end" id="mission-end" hidden>
-              <b id="mission-end-title"></b>
-              <span id="mission-end-text"></span>
-              <button type="button" id="restart-btn">RESTART MISSION</button>
-            </div>
-            <div class="osd-bottom">
-              <span class="osd-name" id="soldier-name">SGT. R. FROST</span>
-              <span class="osd-time">MISSION TIME <span id="mission-time">00:00:00</span></span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </main>
-
-    <aside class="col right">
-      <section class="panel">
-        <h2 id="vitals-title">BIOMONITOR // UNIT 01</h2>
-        <div class="crt-bezel small">
-          <div class="crt small" id="vitals-crt">
-            <canvas id="ecg" width="240" height="90"></canvas>
-            <canvas id="vitals-noise" width="120" height="90"></canvas>
-            <div class="crt-scanlines"></div>
-            <div class="crt-roll"></div>
-            <div class="crt-vignette"></div>
-            <div class="vitals-osd">
-              <div class="vitals-head">
-                <span id="vitals-name">SGT. R. FROST</span>
-                <span class="ecg-label">ECG II</span>
-              </div>
-              <div class="vitals-grid">
-                <div><span>HR</span><b id="bpm">--</b><small>BPM</small></div>
-                <div><span>SPO2</span><b id="o2">--</b><small>%</small></div>
-                <div><span>NIBP</span><b id="bp">--/--</b><small>MMHG</small></div>
-                <div><span>RESP</span><b id="resp">--</b><small>RPM</small></div>
-                <div><span>HEALTH</span><b id="hp">--</b><small>%</small></div>
-                <div><span>STATUS</span><b id="vstatus">--</b><small>&nbsp;</small></div>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
       <section class="panel grow comms">
@@ -125,6 +43,86 @@
           <input id="comms-input" type="text" maxlength="300" placeholder="TRANSMIT (NAME A UNIT)..." spellcheck="false">
           <button type="submit">SEND</button>
         </form>
+      </section>
+    </aside>
+
+    <aside class="col right">
+      <section class="panel cam-panel">
+        <h2 id="cam-title">HELMET CAM // UNIT 01 <span class="rec">● REC</span></h2>
+        <div class="cam-row">
+        <div class="crt-bezel">
+          <div class="crt" id="crt">
+            <canvas id="feed" width="320" height="240"></canvas>
+            <div class="crt-scanlines"></div>
+            <div class="crt-roll"></div>
+            <div class="crt-vignette"></div>
+            <div class="crt-osd">
+              <div class="osd-top">
+                <span id="osd-channel">CH-01</span>
+                <span id="osd-sos" title="Distress signal from the survivor">SOS ▯▯▯▯▯ --</span>
+              </div>
+              <div class="osd-msg" id="osd-msg"></div>
+              <div class="mission-end" id="mission-end" hidden>
+                <b id="mission-end-title"></b>
+                <span id="mission-end-text"></span>
+                <button type="button" id="restart-btn">RESTART MISSION</button>
+              </div>
+              <div class="osd-bottom">
+                <span class="osd-name" id="soldier-name">SGT. R. FROST</span>
+                <span class="osd-time">MISSION TIME <span id="mission-time">00:00:00</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+          <div class="cam-select" id="cam-select" title="Whose helmet camera is on the monitor"></div>
+        </div>
+      </section>
+      <section class="panel vitals-panel">
+        <div class="crt-bezel strip">
+          <div class="crt strip" id="vitals-crt">
+            <canvas id="vitals-noise" width="160" height="24"></canvas>
+            <div class="crt-scanlines"></div>
+            <div class="crt-vignette"></div>
+            <div class="vitals-osd">
+              <span class="vitals-id"><span id="vitals-title">UNIT 01</span> <span id="vitals-name">SGT. R. FROST</span></span>
+              <div class="ecg-wrap"><canvas id="ecg" width="240" height="30"></canvas></div>
+              <div class="vitals-row">
+                <span>HR <b id="bpm">--</b></span>
+                <span>SPO2 <b id="o2">--</b></span>
+                <span>BP <b id="bp">--/--</b></span>
+                <span>RESP <b id="resp">--</b></span>
+                <span>HP <b id="hp">--</b></span>
+                <b id="vstatus">--</b>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="panel squad-panel">
+        <div class="group-orders" id="group-orders">
+          <div class="squad-main">
+            <h2><label class="sel-all" title="Select the whole squad"><input type="checkbox" id="sel-all"> SQUAD</label> <span class="dim">ORDERS TO <b id="sel-count">NONE</b></span></h2>
+            <ul class="roster" id="roster" title="Tick soldiers to give them orders (none ticked: the one on camera)"></ul>
+            <div class="go-buttons">
+              <button type="button" data-act="hold" title="Stop and look around (press again to carry on)">HOLD</button>
+              <button type="button" data-act="slow" title="Move slowly: see further, aim better (press again for normal pace)">SLOW</button>
+              <button type="button" data-act="run" title="Run: faster, but see less (press again for normal pace)">RUN</button>
+              <button type="button" data-act="alert" title="Stop and look in all directions for 5 seconds, then carry on">ALERT</button>
+              <button type="button" data-act="inspect" title="Check the room they're in (or the nearest one): walk to a few spots and look around at each">INSPECT</button>
+              <button type="button" data-act="retreat" title="Fall back from the hostiles">RETREAT</button>
+              <button type="button" data-act="together" title="Regroup behind the lowest-numbered unit">TOGETHER</button>
+              <button type="button" data-act="spread" title="Fan out across the room and act independently">SPREAD</button>
+              <select id="go-follow" title="Who they follow (NOBODY: stop and hold)"></select>
+            </div>
+          </div>
+          <div class="dpad" title="Send them as far as possible in that direction">
+            <button type="button" data-act="north" class="n" title="Head north">▲</button>
+            <button type="button" data-act="west" class="w" title="Head west">◀</button>
+            <button type="button" data-act="hold" class="c" title="Hold (press again to carry on)">■</button>
+            <button type="button" data-act="east" class="e" title="Head east">▶</button>
+            <button type="button" data-act="south" class="s" title="Head south">▼</button>
+          </div>
+        </div>
       </section>
     </aside>
 

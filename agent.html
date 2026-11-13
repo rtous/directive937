@@ -72,6 +72,9 @@
 
     <section class="panel">
       <h2>3 // PLAY</h2>
+      <p>Once the agent says the bridge is ready, press <code>LINK AGENT</code> in the game's top bar. Your browser may ask
+        to let the page reach apps on your device: allow it (the bridge only runs on your own machine). The game remembers
+        this, so reloads and restarts link again by themselves.</p>
       <p>Keep the game open in this browser. The top bar shows <code>AGENT: STANDING BY</code> when the agent is listening.
         Pick who to talk to in the comms box (<code>ALL</code> or one soldier) and type your orders.
         To finish, tell the agent to stop the loop and run <code>node ~/.directive937/bridge.mjs stop</code>.</p>
@@ -117,7 +120,7 @@ SETUP (once, now):
    ██  ⏳  BRIDGE READY — WAITING FOR THE GAME PAGE      ██
    ████████████████████████████████████████████████████
 
-   and keep looping anyway: the game links by itself when its page is open. Print the LINKED banner the first time a wait shows the game connected. If the loop stops for any reason (I interrupt you, an error), print a matching ❌ RADIO LOOP STOPPED banner so I know the game is no longer linked.
+   and keep looping anyway: the game links once I press LINK AGENT in its top bar. Print the LINKED banner the first time a wait shows the game connected. If the loop stops for any reason (I interrupt you, an error), print a matching ❌ RADIO LOOP STOPPED banner so I know the game is no longer linked.
 
 THE MISSION
 A survivor is hiding somewhere in the colony, far from the AIRLOCK. Nobody knows where: it never shows on the map. Each soldier carries a distress-signal detector, and each unit's status has "distress_signal" (0-100): the closer to the survivor, the stronger (it passes through walls; roughly 85 at 2 tiles, 45 at 10, 15 at 22). Search by following the signal: compare units, split up to triangulate, move toward whoever reads strongest. A soldier who gets within a couple of tiles finds the survivor, who then follows that soldier (or another one nearby if that soldier dies). Bring the survivor back to the AIRLOCK, the extraction point marked on the floor, to WIN. If the survivor dies, or the whole squad, the mission is LOST. Hostiles hunt the survivor too once out of hiding. "status.mission" has the objective, the survivor's state and the outcome. Help CONTROL plan: search the distress area, then escort the survivor back (e.g. the finder's group goto airlock, at pace fast if hostiles are near). When a MISSION COMPLETE or MISSION FAILED event arrives, radio a short closing message and keep looping (CONTROL may restart the mission; the page reloads and links again by itself).

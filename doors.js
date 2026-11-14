@@ -9,6 +9,8 @@
 // Welding: the soldier stands in front of the closed door and welds for DOOR.sealTime seconds in all (cutting:
 // DOOR.cutTime). The work pauses if they have to do something else and carries on later from where it was;
 // d.seal (0..1) is how much weld there is, so a half-cut door can be welded again, and the other way round.
+// Until the weld is finished the door still opens for anyone who walks into it (a hostile too, right past the
+// welder), and opening it breaks the weld: back to 0. Only a fully sealed door holds.
 
 const DOOR = {
   speed: 2.2,       // how fast a door slides (fraction of fully open per second)
@@ -38,7 +40,8 @@ function createDoors(spots, grid, roomOf) {
       occupied: false,    // someone is in the doorway: it can't close
       seal: start === "sealed" ? 1 : 0, // how much weld there is, 0..1
       sealed: start === "sealed",
-      weldingUntil: -1,   // someone is welding or cutting it (keeps it shut)
+      weldingUntil: -1,   // someone is welding or cutting it right now
+      forced: 0,          // times a half-welded door was forced open (the weld broken)
     };
   });
   const byTile = new Map(doors.map((d) => [`${d.x},${d.y}`, d]));
@@ -49,7 +52,8 @@ function createDoors(spots, grid, roomOf) {
     clock += dt;
     for (const d of doors) {
       d.occupied = units.some((u) => !u.dead && !u.inVent && ((u.tx === d.x && u.ty === d.y) || (u.nx === d.x && u.ny === d.y)));
-      const want = d.occupied || (!d.sealed && clock < d.askedUntil && clock >= d.weldingUntil);
+      const want = d.occupied || (!d.sealed && clock < d.askedUntil);
+      if (want && !d.sealed && d.seal > 0) { d.seal = 0; d.forced++; } // not finished: opening it breaks the weld
       d.open = Math.max(0, Math.min(1, d.open + (want ? 1 : -1) * DOOR.speed * dt));
     }
   }
@@ -64,7 +68,8 @@ function createDoors(spots, grid, roomOf) {
     // someone at the door wants it open (ignored once sealed)
     ask(d) { if (!d.sealed) d.askedUntil = clock + DOOR.holdOpen; },
     canPass: (d) => !d.sealed && d.open >= DOOR.passable,
-    // A soldier welds for dt seconds. Returns "blocked" (someone in the doorway), "closing", "welding" or "sealed".
+    // A soldier welds for dt seconds. Returns "blocked" (someone in the doorway), "closing" (open: they wait for it
+    // to shut, which it does once nobody wants it open), "welding" or "sealed".
     weld(d, dt) {
       if (d.seal >= 1) return "sealed"; // (a sealed door that's partly cut gets welded back up)
       d.weldingUntil = clock + 0.3;

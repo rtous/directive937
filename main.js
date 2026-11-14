@@ -62,7 +62,7 @@ window.addEventListener("keydown", firstGesture);
 
 // ---------- CRT camera feed ----------
 // The 3D frame, drawn at low resolution and scaled up, like an old analog feed: grayscale with static, a hum bar,
-// streaks and a faint RF pattern. Only red light (emergency lamps) comes through as colour.
+// streaks and a faint RF pattern, seen through a blue filter. Only red light (emergency lamps) comes through as colour.
 const feed = $("feed");
 const fctx = feed.getContext("2d");
 const W = feed.width;
@@ -81,6 +81,7 @@ let switchUntil = 0;  // heavy snow while changing camera channel
 const streaks = [];   // bright horizontal lines
 const RED_MIN = 12;   // ignore faint warm tints
 const RED_GAIN = 2.2; // how strongly red light shows on the monitor
+const TINT = [0.62, 0.84, 1.12]; // blue filter over the grayscale picture (r, g, b gains)
 
 function renderFeed(now) {
   const t = now / 1000;
@@ -136,8 +137,8 @@ function renderFeed(now) {
         if (excess > 0) red = excess * signal;
       }
       const v = base + pic + Math.random() * amp + wave + g;
-      // slight cool phosphor tint, plus the red wash
-      let r = v * 0.92 + red * RED_GAIN, gr = v * 0.98 - red * 0.7, b = v - red * 0.7;
+      // blue filter, plus the red wash
+      let r = v * TINT[0] + red * RED_GAIN, gr = v * TINT[1] - red * 0.7, b = v * TINT[2] - red * 0.7;
       r = r < 0 ? 0 : r > 255 ? 255 : r;
       gr = gr < 0 ? 0 : gr > 255 ? 255 : gr;
       b = b < 0 ? 0 : b > 255 ? 255 : b;
@@ -315,6 +316,7 @@ const RADIO_CALLS = [
 function radioFallback(s, text) {
   if (/^(SECTOR CLEARED|SQUAD LOST|MISSION COMPLETE)/.test(text)) return; // in the log already, or over the camera feed
   if (/ entering .* while /.test(text)) return;        // too frequent to call in
+  if (/ went through .*\d+ of \d+ through/.test(text)) return; // one by one through an access: MOTHER sums it up once all are across
   // deaths, soldiers leaving through the exit, anything without a soldier able to speak: MOTHER
   if (!s || s.dead) return say(text, "mother", "MOTHER");
   const body = text.replace(/^Unit \d+ \([^)]*\) /, "");
@@ -452,8 +454,9 @@ $("comms-form").addEventListener("submit", (e) => {
 
 // ---------- Squad console ----------
 // Big buttons beside the monitor pick whose helmet camera is on screen, and show each soldier's state.
-// Under the biomonitor, a chip per soldier ticks them for orders; the order buttons, the FOLLOW selector and the
-// direction pad then order the ticked soldiers (with none ticked, the one on camera). These are the same orders
+// Under the biomonitor, a chip per soldier ticks them for orders; the order buttons, the FOLLOW selector, the
+// look pad beside them (where they look) and the move pad in the corner of the tactical map (where they head) then
+// order the ticked soldiers (with none ticked, the one on camera). These are the same orders
 // the agent gives: each one shows in the comms log and is reported to the agent.
 const camButtons = SQUAD.map((u, i) => {
   const b = document.createElement("button");
@@ -486,7 +489,7 @@ const picks = SQUAD.map((u) => {
 });
 const selAll = $("sel-all");
 const followSel = $("go-follow");
-const orderButtons = [...document.querySelectorAll("#group-orders button")];
+const orderButtons = [...document.querySelectorAll("#group-orders button, #move-pad button")];
 
 // HOLD / SLOW / RUN: one at a time; none lit = moving at normal pace (the default). Pressing the lit one goes back
 // to that default; HOLD let go = carry on, or rejoin the soldier they followed. HOLD lights only on a soldier told
@@ -591,6 +594,15 @@ const GROUP_ORDERS = {
   south: ["head south", "south"],
   east: ["head east", "east"],
   west: ["head west", "west"],
+  "step-north": ["move north", "step", "north"],
+  "step-south": ["move south", "step", "south"],
+  "step-east": ["move east", "step", "east"],
+  "step-west": ["move west", "step", "west"],
+  "look-north": ["look north", "watch", "north"],
+  "look-south": ["look south", "watch", "south"],
+  "look-east": ["look east", "watch", "east"],
+  "look-west": ["look west", "watch", "west"],
+  "look-around": ["look all around", "watch", "auto"],
 };
 
 // SEAL / UNSEAL is one soldier's job: the one on camera if they're among the ordered, else the first group
@@ -624,8 +636,9 @@ function groupOrder(act) {
   } else if (MODES.includes(act)) {
     [what, results] = setMode(idx.map((i) => world.soldiers[i]), sharedMode(idx) === act ? "normal" : act);
   } else {
-    [what] = GROUP_ORDERS[act];
-    results = world.order(idx.map((i) => String(SQUAD[i].id)).join(","), GROUP_ORDERS[act][1]);
+    const [says, order, arg] = GROUP_ORDERS[act];
+    what = says;
+    results = world.order(idx.map((i) => String(SQUAD[i].id)).join(","), order, arg);
   }
   const live = SQUAD.filter((u, i) => inPlay(i)).length;
   const who = idx.length === live && live > 1 ? "ALL" : idx.map((i) => SQUAD[i].callsign).join(", ");
@@ -684,7 +697,6 @@ function selectUnit(i, force = false) {
 // What the player reads: grunt talk, short, rude and sarcastic. The agent gets the plain facts (sendEvent).
 const pickOne = (lines) => lines[Math.floor(Math.random() * lines.length)];
 const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-const names = (list) => (list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list[0] || "");
 
 // Arriving in a sector. how: null (from the sector before), "start" (a new mission) or "regroup" (a fresh squad
 // after the last one was lost). newArea: the sector is in another area than the one before.
@@ -721,19 +733,6 @@ function arrivalLine(level, from, newArea, how) {
       "Keep it tight and keep it quiet. Anything moves that isn't us, you light it up.",
     ]);
   return `${intro} ${outro}`;
-}
-
-// Through an access: who made it, who didn't
-function clearedLine(out, lost, to) {
-  if (!lost.length) {
-    return pickOne([
-      `Everybody's through to ${to}. Move, move, move!`,
-      `All present and accounted for. On to ${to}, people.`,
-      `Whole squad made it to ${to}. Don't let it go to your heads.`,
-    ]);
-  }
-  return `${names(out)} made it through to ${to}. ${names(lost)} didn't. ` +
-    pickOne([`Poor bastard${lost.length > 1 ? "s" : ""}. Keep moving.`, "No time to mourn. Move it.", "Tag 'em and leave 'em. Eyes front."]);
 }
 
 // Build the world for a sector and reset everything that belongs to it. from: the access (direction) the squad
@@ -794,9 +793,25 @@ function startSector([sx, sy], from = null, carry = null, how = null) {
   const objective = world.mission.status().objective;
   const lost = world.soldiers.filter((s) => s.dead).map((s) => s.callsign);
   const squad = `${world.mission.total} of ${SQUAD.length} in the squad${lost.length ? ` (lost earlier: ${lost.join(", ")})` : ""}.`;
-  addLog(arrivalLine(level, from, newArea, how), "system");
+  // through an access: one call from MOTHER, who made it and where they are now; otherwise the briefing line
+  if (crossing) say(crossingLine(level, crossing, newArea), "mother", "MOTHER");
+  else addLog(arrivalLine(level, from, newArea, how), "system");
+  crossing = null;
   sendEvent(`New sector: ${level.name}. ${level.briefing} ${squad} They are ${level.start ? `in the ${level.start}` : "in a corridor"}. ${objective} ` +
     "The map is new: see colony_map, doors and mission.accesses in the status.");
+}
+
+let crossing = null; // { out, lost, via }: who made it through the access just taken, for MOTHER's call on arrival
+
+// MOTHER's call on arriving through an access: terse, like a ship computer's log line
+function crossingLine(level, { out, lost, via }, newArea) {
+  const total = out.length + lost.length;
+  const area = newArea ? areaOf(...level.sector)?.name : null;
+  return [
+    `TRANSIT ${via.toUpperCase()} COMPLETE. ${level.name}${area ? ` / ${area}` : ""}.`,
+    `UNITS ${out.length}/${total}${lost.length ? `. LOST: ${lost.join(", ")}` : ""}.`,
+    `POSITION: ${level.start || "CORRIDOR"}.`,
+  ].join(" ");
 }
 
 // Nobody left inside. Through an access: straight on to that sector, arriving at its matching access (the camera
@@ -815,7 +830,7 @@ function endSector({ win, victory, reason, exit }) {
   if (win) {
     const carry = world.soldiers.map((s) => ({ alive: !!s.exited, hp: s.hp, pace: s.orders.pace })); // pace: SLOW / RUN kept
     const { out, lost } = world.mission.status();
-    addLog(clearedLine(out, lost, `sector ${exit.toName}`), "system");
+    crossing = { out, lost, via: exit.dir }; // said on arrival, with the new sector
     // after this frame's world update has finished with the old world
     setTimeout(() => startSector(exit.to, DIR[exit.dir].back, carry), 0);
     return;

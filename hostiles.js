@@ -1,10 +1,11 @@
 "use strict";
 
 // Hostile behavior, on two levels:
-//   DUCTS   the ventilation floor above the colony. Hostiles there can't be seen or shot (only the sonar
-//           picks them up) and crawl freely over the whole map. They all start there, at the edges.
-//           A release schedule sends them, one at a time, to a ceiling opening, where they drop in.
-//           The release rate doubles every VENTS.doubling seconds; new ones keep arriving at the edges.
+//   DUCTS   the ventilation ducts above the colony (sectors.js: a network of lines branching out from THE NEST
+//           to every ceiling opening). Hostiles there can't be seen or shot (only the sonar picks them up) and
+//           crawl only along the ducts. New ones come in where the sector's ducts do: from the border on the
+//           nest's side, or the nest itself. A release schedule sends them, one at a time, to a ceiling opening,
+//           where they drop in. The release rate doubles every VENTS.doubling seconds.
 //   GIANT   one huge hostile in THE NEST (sectors.js): never moves. It turns toward the nearest soldier it can see
 //           and lashes out at them (GIANT.range), and it takes a lot of rounds to bring down.
 //   FLOOR   roam the colony: pick somewhere else (another room, down the corridors), walk there opening doors on
@@ -34,9 +35,10 @@ const VENTS = {
   doubling: 50,      // seconds for the number released to double (1, 2, 4, 8, ...)
   stock: 4,          // keep at least this many waiting in the ducts...
   cap: 40,           // ...as long as fewer than this many are alive in total
-  arriveEvery: 4,    // seconds between new arrivals at the duct edges
+  arriveEvery: 4,    // seconds between new arrivals where the ducts come in
   crawl: 1.6,        // tiles per second, heading for an opening
   drift: 0.5,        // tiles per second, idling in the ducts
+  driftRange: 12,    // tiles along the ducts an idle one wanders to
   drop: 0.6,         // seconds to drop from the ceiling to the floor
   nearSquad: 0.6,    // chance an opening near the squad is picked rather than any opening
 };
@@ -52,10 +54,10 @@ const GIANT = {
 
 // nav: grid helpers (nav.js). TILE: world units per tile. ceiling: height a dropping hostile starts from.
 // soldiers: the squad (those out of play are skipped). fogAt(x, y): is that tile in fog. vents: [[x, y]] ceiling
-// openings. schedule: the level's overrides of VENTS. spawn(x, y): create a new hostile in the ducts at that point
+// openings. ducts: { root, links } (sectors.js: buildDucts). schedule: the level's overrides of VENTS. spawn(x, y): create a new hostile in the ducts at that point
 // (world.js calls initVent on it). killSoldier(soldier): a soldier was caught. lash(giant, soldier): the giant hit
 // a soldier (world.js takes the health off).
-function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, spawn, killSoldier, lash }) {
+function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, ducts, schedule, spawn, killSoldier, lash }) {
   // they open doors like the soldiers do (walking into one), but can't get through a sealed one (walkable)
   const { walkable, doors, DIRS, bfs, pathFrom, idx, angleDiff, clearLine, cols, rows, roomOf } = nav;
   const V = { ...VENTS, ...schedule };
@@ -77,22 +79,46 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, 
   let released = 0;     // hostiles sent down so far
   let arriveT = V.firstArrival;
 
-  // In the ducts at (a.x, a.y): hidden, drifting
+  // The ducts as a graph of tiles: key -> neighbouring keys
+  const ductKey = (x, y) => Math.round(y) * cols + Math.round(x);
+  const ductXY = (k) => [k % cols, Math.floor(k / cols)];
+  const ductNext = new Map();
+  const join = (a, b) => (ductNext.get(a) || ductNext.set(a, []).get(a)).push(b);
+  for (const [x1, y1, x2, y2] of ducts.links) { join(ductKey(x1, y1), ductKey(x2, y2)); join(ductKey(x2, y2), ductKey(x1, y1)); }
+  const ductTiles = [...ductNext.keys()];
+
+  // Breadth first along the ducts from tile `from`: the way to `to` (keys after `from`), or, with no `to`, the
+  // tiles within `range` steps
+  function ductSearch(from, to = null, range = Infinity) {
+    const prev = new Map([[from, -1]]), steps = new Map([[from, 0]]), queue = [from];
+    for (let q = 0; q < queue.length; q++) {
+      const k = queue[q];
+      if (k === to) break;
+      if (steps.get(k) >= range) continue;
+      for (const n of ductNext.get(k) || []) {
+        if (prev.has(n)) continue;
+        prev.set(n, k);
+        steps.set(n, steps.get(k) + 1);
+        queue.push(n);
+      }
+    }
+    if (to == null) return queue;
+    if (!prev.has(to)) return null;
+    const path = [];
+    for (let k = to; k !== from; k = prev.get(k)) path.unshift(k);
+    return path;
+  }
+
+  // In the ducts at (a.x, a.y), which is on them: hidden, drifting
   function initVent(a) {
-    Object.assign(a, { inVent: true, vent: null, driftTo: null, dropT: 0, state: "idle", mode: "duct", progress: 1 });
+    Object.assign(a, { inVent: true, vent: null, ductAt: ductKey(a.x, a.y), ductPath: [], ductGoal: null, dropT: 0,
+      state: "idle", mode: "duct", progress: 1 });
     a.group.visible = false;
   }
 
-  // A point at the edge of the map
-  function edgePoint() {
-    const t = Math.random();
-    switch (Math.floor(Math.random() * 4)) {
-      case 0: return [t * (cols - 1), 0.5];
-      case 1: return [t * (cols - 1), rows - 1.5];
-      case 2: return [0.5, t * (rows - 1)];
-      default: return [cols - 1.5, t * (rows - 1)];
-    }
-  }
+  // Where new ones come into this sector's ducts, and anywhere along them (for those already there at the start)
+  const entryPoint = () => [...ducts.root];
+  const ductPoint = () => ductXY(ductTiles.length ? ductTiles[Math.floor(Math.random() * ductTiles.length)] : ductKey(...ducts.root));
 
   // Mostly an opening close to a soldier (they hunt), sometimes any opening
   function chooseVent() {
@@ -121,7 +147,7 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, 
     const idle = aliens.filter((a) => !a.dead && a.inVent && !a.vent).length;
     if ((arriveT -= dt) <= 0 && idle < V.stock && alive < V.cap) {
       arriveT = V.arriveEvery;
-      spawn(...edgePoint());
+      spawn(...entryPoint());
     }
   }
 
@@ -139,27 +165,41 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, 
       a.mixer.update(dt);
       return;
     }
-    let goal = a.vent;
-    if (!goal) {
-      if (!a.driftTo || Math.hypot(a.driftTo[0] - a.x, a.driftTo[1] - a.y) < 0.2) {
-        a.driftTo = [Math.max(0.5, Math.min(cols - 1.5, a.x + (Math.random() - 0.5) * 12)),
-                     Math.max(0.5, Math.min(rows - 1.5, a.y + (Math.random() - 0.5) * 12))];
-      }
-      goal = a.driftTo;
+    // where it's crawling to: the opening it was sent to, or (idle) somewhere along the ducts nearby
+    const ventAt = a.vent ? ductKey(...a.vent) : null;
+    if (ventAt != null && a.ductGoal !== ventAt) { // just sent: turn for the opening, from the next tile on
+      const from = a.ductPath.length ? a.ductPath[0] : a.ductAt;
+      const way = ductSearch(from, ventAt);
+      a.ductGoal = ventAt;
+      a.ductPath = way ? (a.ductPath.length ? [from, ...way] : way) : [];
     }
-    const dx = goal[0] - a.x, dy = goal[1] - a.y, d = Math.hypot(dx, dy);
-    const step = (a.vent ? V.crawl : V.drift) * dt;
-    if (d > step) {
-      a.x += (dx / d) * step;
-      a.y += (dy / d) * step;
-    } else if (a.vent) { // at the opening: drop
-      [a.x, a.y] = a.vent;
-      a.dropT = V.drop;
-      a.group.visible = true;
-      a.group.position.set(a.x * TILE, ceiling - 0.4, a.y * TILE);
-      a.group.rotation.y = Math.random() * Math.PI * 2;
-    } else {
-      [a.x, a.y] = goal;
+    if (!a.ductPath.length) {
+      if (ventAt != null) { // at the opening (or it isn't on the ducts): drop
+        [a.x, a.y] = a.vent;
+        a.dropT = V.drop;
+        a.group.visible = true;
+        a.group.position.set(a.x * TILE, ceiling - 0.4, a.y * TILE);
+        a.group.rotation.y = Math.random() * Math.PI * 2;
+        return;
+      }
+      const near = ductSearch(a.ductAt, null, V.driftRange);
+      a.ductGoal = near[Math.floor(Math.random() * near.length)];
+      a.ductPath = ductSearch(a.ductAt, a.ductGoal) || [];
+    }
+    // along the path, tile to tile
+    let step = (a.vent ? V.crawl : V.drift) * dt;
+    while (step > 0 && a.ductPath.length) {
+      const [nx, ny] = ductXY(a.ductPath[0]);
+      const dx = nx - a.x, dy = ny - a.y, d = Math.hypot(dx, dy);
+      if (d > step) {
+        a.x += (dx / d) * step;
+        a.y += (dy / d) * step;
+        step = 0;
+      } else {
+        [a.x, a.y] = [nx, ny];
+        a.ductAt = a.ductPath.shift();
+        step -= d;
+      }
     }
   }
 
@@ -383,5 +423,5 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, 
     }
   }
 
-  return { initVent, initGiant, tick, update, edgePoint, schedule: V };
+  return { initVent, initGiant, tick, update, entryPoint, ductPoint, schedule: V };
 }

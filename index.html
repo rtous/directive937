@@ -35,6 +35,17 @@
           <canvas id="map" width="440" height="330"></canvas>
           <div class="crt-scanlines"></div>
           <div class="crt-vignette"></div>
+          <div class="map-dpad" id="move-pad" title="Letters: as far as possible that way. Arrows: to the next room, junction, dead end or sealed door that way">
+            <button type="button" data-act="north" class="far-n" title="Head north, as far as possible">N</button>
+            <button type="button" data-act="step-north" class="step-n" title="Move north: to the next room, junction, dead end or sealed door">▲</button>
+            <button type="button" data-act="west" class="far-w" title="Head west, as far as possible">W</button>
+            <button type="button" data-act="step-west" class="step-w" title="Move west: to the next room, junction, dead end or sealed door">◀</button>
+            <button type="button" data-act="hold" class="mid" title="Hold (press again to carry on)">■</button>
+            <button type="button" data-act="step-east" class="step-e" title="Move east: to the next room, junction, dead end or sealed door">▶</button>
+            <button type="button" data-act="east" class="far-e" title="Head east, as far as possible">E</button>
+            <button type="button" data-act="step-south" class="step-s" title="Move south: to the next room, junction, dead end or sealed door">▼</button>
+            <button type="button" data-act="south" class="far-s" title="Head south, as far as possible">S</button>
+          </div>
         </div>
       </section>
       <section class="panel grow comms">
@@ -118,12 +129,13 @@
               <select id="go-follow" title="Who they follow (NOBODY: stop and hold)"></select>
             </div>
           </div>
-          <div class="dpad" title="Send them as far as possible in that direction">
-            <button type="button" data-act="north" class="n" title="Head north">▲</button>
-            <button type="button" data-act="west" class="w" title="Head west">◀</button>
-            <button type="button" data-act="hold" class="c" title="Hold (press again to carry on)">■</button>
-            <button type="button" data-act="east" class="e" title="Head east">▶</button>
-            <button type="button" data-act="south" class="s" title="Head south">▼</button>
+          <div class="dpad look-pad" title="Where they look (until a few seconds after they move off)">
+            <svg class="look-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <button type="button" data-act="look-north" class="n" title="Look north">▲</button>
+            <button type="button" data-act="look-west" class="w" title="Look west">◀</button>
+            <button type="button" data-act="look-around" class="c" title="Look all around (the default)">◉</button>
+            <button type="button" data-act="look-east" class="e" title="Look east">▶</button>
+            <button type="button" data-act="look-south" class="s" title="Look south">▼</button>
           </div>
         </div>
       </section>
@@ -163,5 +175,7 @@
   <script src="tacmap.js"></script>
   <script src="papermap.js"></script>
   <script src="main.js"></script>
+  <!-- optional: voice orders into the comms box (Chrome speech recognition); remove this line and voice.js to drop it -->
+  <script src="voice.js"></script>
 </body>
 </html>

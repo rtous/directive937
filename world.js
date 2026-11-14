@@ -127,7 +127,7 @@ function createWorld(width, height, squad, level, carry = null) {
 
   // ---------- Lights ----------
   // Very dim ambient; the helmet lamps do most of the work
-  scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.08));
 
   // Each room has a weak ceiling light (half the colony's power is out); corridors stay dark
   // (the feed is grayscale, so only red lights keep their colour; the rest become plain white)
@@ -136,7 +136,7 @@ function createWorld(width, height, squad, level, carry = null) {
     const [cx, cz] = nav.roomCentre(r).map((v) => v * TILE);
     const c = new THREE.Color(r.light);
     const color = c.r > 2 * c.g && c.r > 2 * c.b ? c : new THREE.Color(0xffffff).multiplyScalar(c.r * 0.3 + c.g * 0.59 + c.b * 0.11);
-    const light = new THREE.PointLight(color, 0.55, Math.max(r.w, r.h) * TILE * 0.9, 1.5);
+    const light = new THREE.PointLight(color, 0.42, Math.max(r.w, r.h) * TILE * 0.9, 1.5);
     light.position.set(cx, WALL_H - 0.3, cz);
     const fixture = new THREE.Mesh(fixtureGeo, new THREE.MeshBasicMaterial({ color }));
     fixture.position.set(cx, WALL_H - 0.05, cz);
@@ -367,6 +367,64 @@ function createWorld(width, height, squad, level, carry = null) {
   const bodyMat = new THREE.MeshLambertMaterial({ color: 0x8a8f86 });
   const visorMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
+  // ---------- Helmet flashlight ----------
+  // A lamp on the right side of each soldier's head (helmet or not). Its own camera sees only the light it
+  // throws; the others also see the bright lens and a faint beam through the dark air.
+  const LAMP_POS = new THREE.Vector3(0.17, 0.05, -0.04); // from the eyes: right, a little up, a little forward
+  const BEAM_LEN = 4.5;
+  const BEAM_RADIUS = 0.9;
+  const beamGeo = new THREE.ConeGeometry(BEAM_RADIUS, BEAM_LEN, 20, 1, true);
+  beamGeo.translate(0, -BEAM_LEN / 2, 0); // apex at the lens
+  beamGeo.rotateX(Math.PI / 2);           // opening along -z, the way the camera looks
+  const beamMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+    uniforms: { strength: { value: 0.22 } },
+    vertexShader: `
+      varying float vAlong; varying float vFacing;
+      void main() {
+        vAlong = uv.y; // 1 at the lens, 0 at the far end
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vFacing = abs(dot(normalize(normalMatrix * normal), normalize(-mv.xyz)));
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform float strength; varying float vAlong; varying float vFacing;
+      void main() {
+        float a = strength * vAlong * vAlong * vFacing; // fades out along the beam and toward its edges
+        gl_FragColor = vec4(vec3(a), 1.0);
+      }`,
+  });
+  const glowTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d");
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.25, "rgba(255,255,255,0.6)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  const glowMat = new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+
+  // The lamp, fixed to a soldier's head (their camera); returns what other cameras see of it
+  function helmetFlashlight(camera) {
+    const lamp = new THREE.SpotLight(0xffffff, 2.0, 20, Math.PI / 3.6, 0.6, 1);
+    lamp.position.copy(LAMP_POS);
+    lamp.target.position.set(LAMP_POS.x, LAMP_POS.y - 0.2, -5); // straight ahead, tipped a little down
+    camera.add(lamp, lamp.target);
+    const fx = new THREE.Group();
+    fx.position.copy(LAMP_POS);
+    fx.rotation.x = -0.04; // same downward tip as the light
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    const glow = new THREE.Sprite(glowMat);
+    glow.scale.setScalar(0.3);
+    fx.add(beam, glow);
+    camera.add(fx);
+    return fx;
+  }
+
   let onEvent = () => {};
   let onFire = () => {}; // (soldier, shot times in seconds from now)
   let onSoldierDown = () => {}; // (soldier): just killed
@@ -378,11 +436,7 @@ function createWorld(width, height, squad, level, carry = null) {
 
     const camera = new THREE.PerspectiveCamera(78, width / height, 0.05, 40);
     scene.add(camera);
-    const lamp = new THREE.SpotLight(0xffffff, 2.0, 20, Math.PI / 3.6, 0.6, 1);
-    lamp.position.set(0.15, 0.1, 0);
-    camera.add(lamp);
-    camera.add(lamp.target);
-    lamp.target.position.set(0, -0.2, -5);
+    const lampFx = helmetFlashlight(camera);
     camera.add(new THREE.PointLight(0xffffff, 0.4, 5)); // spill around the soldier
 
     // Placeholder figure, replaced by the 3D model once it loads (models.js)
@@ -393,14 +447,14 @@ function createWorld(width, height, squad, level, carry = null) {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), bodyMat);
     head.position.y = 1.62;
     const helmetLamp = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.05), visorMat);
-    helmetLamp.position.set(0.1, 1.7, -0.16);
+    helmetLamp.position.set(0.17, 1.66, -0.12); // where the flashlight shines from
     placeholder.add(torso, head, helmetLamp);
     body.add(placeholder);
     scene.add(body);
 
     return {
       ...def,
-      camera, body, placeholder,
+      camera, body, placeholder, lampFx,
       anim: null,                  // { mixer, actions, state, ... } once the model is loaded
       tx: sx, ty: sy,              // tile currently standing on / leaving
       nx: sx, ny: sy,              // tile walking to
@@ -496,7 +550,7 @@ function createWorld(width, height, squad, level, carry = null) {
       if (disposed) return;
       alienModel = t;
       if (level.giant) spawnGiant(level.giant);
-      for (let i = 0; i < hostiles.schedule.start; i++) spawnAlien(...hostiles.edgePoint());
+      for (let i = 0; i < hostiles.schedule.start; i++) spawnAlien(...hostiles.ductPoint()); // already somewhere in the ducts
     }).catch((err) => console.warn("Alien model not loaded:", err));
   }
 
@@ -526,6 +580,8 @@ function createWorld(width, height, squad, level, carry = null) {
   // The hostiles' (hostiles.js): touching a soldier kills them
   const hostiles = createHostiles({
     nav, TILE, ceiling: WALL_H, soldiers, fogAt, vents, schedule: level.hostiles,
+    // the ducts the hostiles crawl along (sectors.js); a level without them gets a network from its first vent
+    ducts: level.ducts || buildDucts(level.width, level.height, vents[0] || [1, 1], vents),
     spawn: spawnAlien,
     killSoldier: (s) => brain.hurt(s, s.hp, `was taken by a hostile in ${nav.where(s.tx, s.ty)}`),
     // the giant hit a soldier: a splash on them, and the health off
@@ -812,7 +868,7 @@ function createWorld(width, height, squad, level, carry = null) {
 
   // Render from one soldier's helmet camera (their own body hidden)
   function render(index) {
-    soldiers.forEach((s, i) => (s.body.visible = !s.dead && i !== index));
+    soldiers.forEach((s, i) => (s.body.visible = s.lampFx.visible = !s.dead && i !== index));
     const k = soldiers[index].fogMix;
     scene.fog.near = CLEAR_FOG.near + (THICK_FOG.near - CLEAR_FOG.near) * k;
     scene.fog.far = CLEAR_FOG.far + (THICK_FOG.far - CLEAR_FOG.far) * k;

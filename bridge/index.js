@@ -34,7 +34,7 @@ server.registerTool("wait_for_transmission", {
 server.registerTool("send_order", {
   description: "Give soldiers an order. Soldiers act on their own between orders (default: stay together, patrol, " +
     "watch all angles, engage and pursue hostiles); instincts (point-blank fire, panic flight) override orders.\n" +
-    "TASKS: patrol [room] | goto <room | x y> | north/south/east/west (as far as possible) | hold | " +
+    "TASKS: patrol [room] | goto <room | x y> | north/south/east/west (as far as possible) | step north|south|east|west (one leg: from a room out the doorway on that side to the next room's centre; along a corridor to the next junction, dead end or sealed door) | hold | " +
     "alert (stop, look all around 5 s, carry on) | inspect [room] (check it spot by spot, then hold) | " +
     "retreat [room] | getout (each runs to the nearest corridor, on their own) | follow <unit> | seal [door] (weld a door shut, 20 s, one soldier) | unseal [door] (cut a sealed door open again, 15 s) | continue.\n" +
     "SQUAD SHAPE: together (regroup behind the lowest-numbered unit) | split (ALPHA 1+2, BRAVO 3+4) | spread.\n" +
@@ -42,7 +42,7 @@ server.registerTool("send_order", {
     "pursue on|off | watch auto|front|rear|<direction, diagonals too: north-east>|center (of the room)|<room>|<x y> (lapses to auto a few seconds after moving) | reset.",
   inputSchema: {
     unit: UNIT,
-    action: z.enum(["patrol", "goto", "north", "south", "east", "west", "hold", "alert", "inspect", "retreat", "follow", "continue",
+    action: z.enum(["patrol", "goto", "north", "south", "east", "west", "step", "hold", "alert", "inspect", "retreat", "follow", "continue",
       "together", "split", "spread", "pace", "fire", "contact", "pursue", "watch", "reset"]),
     target: z.string().optional().describe("The argument: a room (MEDLAB, AIRLOCK...), a position \"x y\", a unit, or a value like slow / hold / off"),
   },

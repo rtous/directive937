@@ -93,13 +93,15 @@ const SHORTCUTS = {
   regroup: ["together"], group: ["together"],
   out: ["getout"], "get-out": ["getout"], "out-of-there": ["getout"], "get-out-of-there": ["getout"], evacuate: ["getout"],
   n: ["north"], s: ["south"], e: ["east"], w: ["west"],
+  advance: ["step"], leg: ["step"],
   slow: ["pace", "slow"], fast: ["pace", "fast"],
   "hold-fire": ["fire", "hold"], "weapons-free": ["fire", "free"],
   weld: ["seal"], "seal-door": ["seal"],
   unweld: ["unseal"], cut: ["unseal"], "unseal-door": ["unseal"], "cut-open": ["unseal"],
 };
 
-const ORDER_HELP = "Tasks: patrol [room], goto <room | x y>, north/south/east/west, hold, alert, inspect [room], retreat [room], " +
+const ORDER_HELP = "Tasks: patrol [room], goto <room | x y>, north/south/east/west (as far as possible), " +
+  "step north/south/east/west (to the next room, junction, dead end or sealed door), hold, alert, inspect [room], retreat [room], " +
   "follow <unit>, getout, seal [door: D1.. | room | x y | nearest], unseal [door], continue. Squad: together, split, spread. Standing: pace slow|normal|fast, fire free|hold, " +
   "contact engage|hold|retreat, pursue on|off, watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>, reset.";
 
@@ -386,6 +388,54 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     return best;
   }
 
+  // One leg in a compass direction, to the next place worth stopping at. From a room: out through its doorway on
+  // that side (the one nearest the soldier) and along the corridor. Along a corridor (bends followed): it ends at
+  // a junction or a side opening (where to go next is a new decision), a dead end, in front of a sealed door, or
+  // in the next room, at its centre. Returns { tile, room, why, door } or { error }.
+  function stepTarget(s, d) {
+    const [fx, fy] = here(s);
+    const dir = DIR_NAMES[d];
+    const startRoom = roomOf(fx, fy);
+    const back = (k) => (k + 2) % 4;
+    const step = (p, k) => [p[0] + DIRS[k][0], p[1] + DIRS[k][1]];
+    let p = [fx, fy], k = d;
+    if (startRoom) { // the doorway on that side nearest the soldier, and the room tile in front of it
+      const r = startRoom, ways = [];
+      const [dx, dy] = DIRS[d];
+      if (dy) for (let x = r.x; x < r.x + r.w; x++) { const y = dy < 0 ? r.y - 1 : r.y + r.h; if (isOpen(x, y) && !roomOf(x, y)) ways.push([x, y - dy]); }
+      else for (let y = r.y; y < r.y + r.h; y++) { const x = dx < 0 ? r.x - 1 : r.x + r.w; if (isOpen(x, y) && !roomOf(x, y)) ways.push([x - dx, y]); }
+      if (!ways.length) return { error: `No way out ${dir} of ${r.name}.` };
+      p = ways.reduce((b, w) => (Math.hypot(w[0] - fx, w[1] - fy) < Math.hypot(b[0] - fx, b[1] - fy) ? w : b));
+    } else if (!isOpen(...step(p, d))) {
+      return { error: `The corridor doesn't go ${dir} from here.` };
+    }
+    for (let first = true, n = 0; n < cols * 4; n++, first = false) {
+      if (!roomOf(...p)) { // in a corridor: where it can go on from here (not back)
+        const opens = [0, 1, 2, 3].filter((j) => j !== back(k) && isOpen(...step(p, j)));
+        if (!first && opens.length >= 2) return { tile: p, why: "junction" };
+        if (!opens.length) return first ? { error: `The corridor doesn't go ${dir} from here.` } : { tile: p, why: "dead end" };
+        if (!opens.includes(k)) {
+          if (first) return { error: `The corridor doesn't go ${dir} from here.` };
+          k = opens[0]; // a bend: follow it
+        }
+      }
+      const next = step(p, k);
+      if (!isOpen(...next)) return { tile: p, why: "dead end" };
+      const door = doors.at(...next);
+      if (door?.sealed) {
+        if (p[0] === fx && p[1] === fy) return { error: `Sealed door ${door.id} right ahead: unseal it first.` };
+        return { tile: p, why: "sealed", door };
+      }
+      const r = roomOf(...next);
+      if (r && r !== startRoom) {
+        if (nav.closedExit(r)) return { tile: p, why: "closed", room: r };
+        return { tile: roomTile(r, s) || next, room: r, why: "room" };
+      }
+      p = next;
+    }
+    return { tile: p, why: "dead end" };
+  }
+
   // ---------- Squad shape ----------
   const followersOf = (s) => soldiers.filter((o) => o.leader === s).sort((a, b) => a.id - b.id);
   const rootOf = (s) => { let r = s; for (let i = 0; r.leader && i < 8; i++) r = r.leader; return r; };
@@ -463,6 +513,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       case "goto":
         if (t.spread) return `take spread position (${t.tile.join(", ")})`;
         if (t.out) return `get out to the corridor at (${t.tile.join(", ")})`;
+        if (t.step) return `move ${t.step} to ${t.room ? t.room.name : `(${t.tile.join(", ")})`}`;
         return t.room ? `go to ${t.room.name}` : `go to (${t.tile.join(", ")})`;
       case "heading": return `head ${t.dir}`;
       case "hold": return "hold position";
@@ -628,6 +679,10 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     stopHere(s, job);
     s.halt = true;
     s.gaze = angleTo(s, d.x, d.y);
+    if (!t.cut && t.forced != null && d.forced > t.forced) { // someone opened it before the weld was done
+      emit(s, `${label(s)}: door ${d.id} (${d.where}) was forced open before the weld was done. The weld is broken, starting over.`);
+    }
+    t.forced = d.forced;
     const state = t.cut ? doors.cut(d, dt) : doors.weld(d, dt);
     if (state === "sealed" || state === "unsealed") {
       emit(s, state === "sealed"
@@ -1010,6 +1065,10 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
 
   // A "watch" order only lasts while standing: a few seconds after the soldier starts moving it lapses
   const WATCH_LAPSE = 4; // seconds of moving
+  // Told to look somewhere the head can't turn to on the move (behind, or well to the side): the soldier stops,
+  // turns and looks that way for a moment, then carries on with what they were doing, eyes back to normal
+  const LOOK_PAUSE = 3;    // seconds stopped, looking
+  const LOOK_BEHIND = 1.75; // radians off the way they walk that count as "behind" (the head turns ~1.3)
   function lapseWatch(s, dt, moving) {
     if (s.orders.watch === "auto" || !moving) { s.watchMoving = 0; return; }
     if ((s.watchMoving += dt) < WATCH_LAPSE) return;
@@ -1060,6 +1119,11 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     if (s.panicCooldown > 0) s.panicCooldown -= dt;
 
     lapseWatch(s, dt, s.moving || (!s.halt && s.path.length > 0));
+    if (s.lookPause > 0 && (s.lookPause -= dt) <= 0) { // looked long enough: carry on, eyes back to normal
+      s.lookPause = 0;
+      s.orders.watch = "auto";
+      s.watchAim = null;
+    }
     perceive(s);
     s.danger = danger(s, [...new Set([...s.visible.map((c) => c.alien), ...recent(s)])]);
     const calm = clamp(s.danger / BEHAVIOR.panic + (s.visible.length ? 0.25 : 0) + (s.fireLeft > 0 ? 0.2 : 0) + (s.flee ? 0.4 : 0), 0, 1);
@@ -1079,6 +1143,10 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     s.contactNote = null;
     doTask(s, dt);
     if (s.contactNote) s.doing += `, ${s.contactNote}`;
+    if (s.lookPause > 0) { // stopped for a look (setWatch)
+      s.halt = true;
+      s.doing += `, stopped to look ${s.orders.watch}`;
+    }
     if (!s.halt && crowded(s) && makeRoom(s)) s.doing += ", making room";
     watch(s, dt, !s.halt && (s.path.length > 0 || s.progress < 1));
   }
@@ -1257,6 +1325,26 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       const left = Math.ceil(door.seal * DOOR.cutTime);
       return ok(`Cutting door ${door.id} open (${door.where}): about ${left} seconds of cutting once there.`);
     },
+    // one leg in a direction: to the next room's centre, junction, dead end or sealed door (stepTarget)
+    step(s, arg) {
+      const d = DIR_NAMES.findIndex((n) => n === arg || n[0] === arg);
+      if (d < 0) return bad("step needs a direction: north, south, east or west.");
+      const t = stepTarget(s, d);
+      if (t.error) return bad(t.error);
+      const dir = DIR_NAMES[d];
+      if (atTile(s, t.tile)) return bad(`Can't get any further ${dir} from here.`);
+      const [fx, fy] = here(s);
+      if (bfs(fx, fy, orderedTo(...t.tile)).dist[idx(...t.tile)] < 0) return bad(`No route ${dir} from here.`);
+      setTask(s, { kind: "goto", tile: t.tile, room: t.why === "room" ? t.room : null, step: dir });
+      const at = `(${t.tile.join(", ")})`;
+      return ok({
+        room: `Moving ${dir} to ${t.room?.name}${t.room && inExit(...t.tile) ? ": out through it" : ""}.`,
+        junction: `Moving ${dir} to the junction at ${at}.`,
+        "dead end": `Moving ${dir} to the end of the corridor at ${at}.`,
+        sealed: `Moving ${dir} up to sealed door ${t.door?.id}.`,
+        closed: `Moving ${dir} up to the ${t.room?.name} (closed: the squad is leaving another way).`,
+      }[t.why]);
+    },
     continue(s) {
       const p = s.prevTask;
       if (!p) return TASKS.patrol(s, "");
@@ -1347,6 +1435,16 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       s.orders.watch = label;
       s.watchAim = aim;
       s.watchMoving = 0;
+      s.lookPause = 0;
+      // on the move and told to look behind (or well to the side): stop for a look, then carry on
+      const moving = s.task.kind !== "hold" && (s.moving || s.path.length > 0);
+      if (aim && moving) {
+        const want = aim.point ? angleTo(s, ...aim.point) : aim.heading;
+        if (Math.abs(angleDiff(s.restHeading ?? s.heading, want)) > LOOK_BEHIND) {
+          s.lookPause = LOOK_PAUSE;
+          return ok(`${says} Stopping for a look, then carrying on.`);
+        }
+      }
       return ok(says + (label === "auto" ? "" : lapse));
     };
     const simple = Object.keys(STANDING.watch).find((v) => v === arg || STANDING.watch[v][0].includes(arg));

@@ -85,6 +85,108 @@ const sectorLinks = (() => {
     return links;
   };
 })();
+// ---------- The ducts ----------
+// The ventilation ducts above the ceilings: one network over the whole complex, branching out from THE NEST. A tree
+// over the sectors (all of them, linked or not: the ducts run above the walls) says which way each sector's ducts
+// lead back toward the nest. Inside a sector they run along a grid of lines (ductLines), from where they come in
+// (the nest, or the sector border on the nest's side) to every ceiling vent, and on across the border to the
+// sectors further out. The hostiles crawl along them (hostiles.js); the paper map draws them.
+
+// "sx,sy" -> the direction, from that sector, of the next sector toward the nest (null: the boss sector itself)
+const ductParents = (() => {
+  let parents = null;
+  return () => {
+    if (parents) return parents;
+    parents = new Map([[SECTORS.boss.join(), null]]);
+    const N = SECTORS.size, rnd = seededRandom(3);
+    const queue = [SECTORS.boss];
+    for (let q = 0; q < queue.length; q++) { // breadth first from the nest, neighbours in a random order
+      const [x, y] = queue[q];
+      for (const dir of Object.keys(DIR).sort(() => rnd() - 0.5)) {
+        const [dx, dy] = DIR[dir].d, nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= N || ny >= N || parents.has(`${nx},${ny}`)) continue;
+        parents.set(`${nx},${ny}`, DIR[dir].back);
+        queue.push([nx, ny]);
+      }
+    }
+    return parents;
+  };
+})();
+
+// The lines the ducts run along, across a map `size` tiles wide: every 5-6 tiles, from 3 tiles in
+function ductLines(size) {
+  const lines = [];
+  for (let v = 3; v <= size - 4; v += 5.5) lines.push(Math.round(v));
+  return lines;
+}
+
+// The border tile where the ducts cross from sector (sx, sy) toward `dir`: on one of the grid lines, picked once
+// per border, so both sectors put it at the same spot
+function ductCrossing(sx, sy, dir) {
+  const T = SECTORS.tiles, lines = ductLines(T);
+  const back = dir === "west" || dir === "north";
+  const [cx, cy] = back ? [sx + DIR[dir].d[0], sy + DIR[dir].d[1]] : [sx, sy]; // the west / north sector of the two
+  const rnd = seededRandom(4, cx, cy, dir === "east" || dir === "west" ? 0 : 1);
+  const k = lines[1 + Math.floor(rnd() * (lines.length - 2))];
+  return dir === "east" ? [T - 1, k] : dir === "west" ? [0, k] : dir === "south" ? [k, T - 1] : [k, 0];
+}
+
+// A sector's ducts: from `root` to every one of `targets` ([x, y] tiles), along the grid lines (each target off
+// them gets a straight stub to the nearest line). Grown one target at a time, the nearest first, by the cheapest
+// way from what's built so far: one per tile, more for a turn (long straight runs). Returns { root, links }:
+// links [[x1, y1, x2, y2]] between neighbouring tiles.
+function buildDucts(W, H, root, targets) {
+  const cols = ductLines(W), rows = ductLines(H);
+  const at = (x, y) => y * W + x;
+  const open = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (cols.includes(x) || rows.includes(y)) open[at(x, y)] = 1;
+  const nearest = (lines, v) => lines.reduce((b, l) => (Math.abs(l - v) < Math.abs(b - v) ? l : b));
+  for (const [x, y] of [root, ...targets]) {
+    const lx = nearest(cols, x), ly = nearest(rows, y);
+    if (Math.abs(lx - x) <= Math.abs(ly - y)) for (let k = Math.min(x, lx); k <= Math.max(x, lx); k++) open[at(k, y)] = 1;
+    else for (let k = Math.min(y, ly); k <= Math.max(y, ly); k++) open[at(x, k)] = 1;
+  }
+  const STEPS = [[1, 0], [0, 1], [-1, 0], [0, -1]], TURN = 3;
+  const inTree = new Uint8Array(W * H);
+  inTree[at(...root)] = 1;
+  const links = [];
+  const wanted = new Set(targets.map(([x, y]) => at(x, y)));
+  wanted.delete(at(...root));
+  while (wanted.size) {
+    // Dijkstra over (tile, heading) from every tile already built, with a bucket queue (costs are small integers)
+    const cost = new Int32Array(W * H * 4).fill(-1), prev = new Int32Array(W * H * 4).fill(-1);
+    const buckets = [[]];
+    for (let i = 0; i < W * H; i++) if (inTree[i]) for (let d = 0; d < 4; d++) { cost[i * 4 + d] = 0; buckets[0].push(i * 4 + d); }
+    let hit = -1;
+    for (let c = 0; c < buckets.length && hit < 0; c++) {
+      for (const st of buckets[c] || []) {
+        if (cost[st] !== c) continue;
+        const i = st >> 2, d = st & 3;
+        if (wanted.has(i)) { hit = st; break; }
+        const x = i % W, y = (i / W) | 0;
+        for (let d2 = 0; d2 < 4; d2++) {
+          const nx = x + STEPS[d2][0], ny = y + STEPS[d2][1];
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H || !open[at(nx, ny)]) continue;
+          const ns = at(nx, ny) * 4 + d2, nc = c + 1 + (d2 === d ? 0 : TURN);
+          if (cost[ns] >= 0 && cost[ns] <= nc) continue;
+          cost[ns] = nc;
+          prev[ns] = st;
+          (buckets[nc] ||= []).push(ns);
+        }
+      }
+    }
+    if (hit < 0) break; // can't happen: the grid lines reach everywhere
+    for (let st = hit; prev[st] >= 0; st = prev[st]) { // back to where it left the built part
+      const i = st >> 2, j = prev[st] >> 2;
+      links.push([j % W, (j / W) | 0, i % W, (i / W) | 0]);
+      inTree[i] = 1;
+      wanted.delete(i);
+    }
+    wanted.delete(hit >> 2);
+  }
+  return { root: [...root], links };
+}
+
 // Named areas spanning several sectors, drawn on the paper map. Every sector is in one. When the whole squad is
 // lost, it comes back, all of it, in the sector where it came into the area it's in (main.js).
 // cells: [[sx1, sy1, sx2, sy2]] rectangles of sectors (inclusive); an area can be several.
@@ -292,10 +394,10 @@ function generateSector(sx, sy) {
     corridorTiles.push(...inner);
     // a door now and then: next to a room, or partway along; only links off the maze may start sealed (so
     // everything can still be reached)
-    if (inner.length && rnd() < 0.45) {
+    if (inner.length && rnd() < 0.6) {
       const ends = [p.room && tiles[0], q.room && tiles[tiles.length - 1]].filter(Boolean);
       const door = ends.length ? pick(ends) : inner[Math.floor(inner.length / 2)];
-      doors.push(!inMaze && rnd() < 0.5 ? [...door, "sealed"] : door);
+      doors.push(!inMaze && rnd() < 0.75 ? [...door, "sealed"] : door);
     }
     for (let k = 2; k < tiles.length - 1; k += 4) {
       if (!doors.some(([dx, dy]) => dx === tiles[k][0] && dy === tiles[k][1])) lights.push(tiles[k]);
@@ -353,6 +455,23 @@ function generateSector(sx, sy) {
   if (!vents.length) vents.push(pick([...slots.filter((s) => s.there && !s.room).map((s) => s.c), ...corridorTiles]));
   // red lights: along the corridors (above), plus a corner of some rooms
   for (const s of roomSlots) if (rnd() < 0.5) lights.push([s.room.x, s.room.y]);
+  // a vent too close to a red light panel moves to the nearest free floor tile (the same rule world.js applies, done
+  // here so the eggs and the ducts know where the vents really are)
+  {
+    const grid = levelGrid({ width: T, height: T, rooms, corridors, blocks });
+    const g = isBoss ? slotCentre(1) : -99;
+    const ok = (x, y) => grid[y]?.[x] === 0 && !(Math.abs(x - g) <= GIANT_SPACE && Math.abs(y - g) <= GIANT_SPACE)
+      && lights.every(([lx, ly]) => Math.hypot(lx - x, ly - y) >= 2);
+    vents.forEach((v, i) => {
+      if (ok(...v)) return;
+      let best = null, bestD = Infinity;
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        if (ok(v[0] + dx, v[1] + dy) && Math.hypot(dx, dy) < bestD) { bestD = Math.hypot(dx, dy); best = [v[0] + dx, v[1] + dy]; }
+      }
+      vents[i] = best;
+    });
+    for (let i = vents.length - 1; i >= 0; i--) if (!vents[i]) vents.splice(i, 1);
+  }
   // steam or smoke: plenty everywhere, and more the closer the sector is to THE NEST. Rooms and corridor runs, in
   // a random order, until about the sector's share of its floor is fogged. Never the nest itself, so the squad can
   // see the giant.
@@ -421,9 +540,19 @@ function generateSector(sx, sy) {
     }
   }
 
+  // ---- the ducts above the ceiling: in from the nest's side (or the nest itself), to every vent and on out ----
+  const parentDir = ductParents().get(key);
+  const childDirs = Object.keys(DIR).filter((dir) => {
+    const [dx, dy] = DIR[dir].d;
+    return ductParents().get(`${sx + dx},${sy + dy}`) === DIR[dir].back;
+  });
+  const ducts = buildDucts(T, T, isBoss ? [slotCentre(1), slotCentre(1)] : ductCrossing(sx, sy, parentDir),
+    [...vents, ...childDirs.map((dir) => ductCrossing(sx, sy, dir))]);
+  ducts.out = [parentDir, ...childDirs].filter(Boolean).map((dir) => [...ductCrossing(sx, sy, dir), dir]); // [x, y, dir] across the border
+
   const level = {
     id: `sector-${name}`, name: `SECTOR ${name}`, sector: [sx, sy], density,
-    width: T, height: T, rooms, corridors, doors, blocks, fog, vents, lights, exits, eggs,
+    width: T, height: T, rooms, corridors, doors, blocks, fog, vents, ducts, lights, exits, eggs,
     entry: isEntry ? "ENTRY" : null,
     hostiles: hostileSchedule(sx, sy),
     // the boss sector: a towering ceiling over everything, and the giant in the middle of THE NEST

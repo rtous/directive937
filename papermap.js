@@ -2,8 +2,9 @@
 
 // The paper map: the whole complex (every sector of sectors.js) full screen, drawn like the hand-made maps in
 // old sci-fi films: a near-black sheet, thin pale lines, sector grid and labels (the Sevastolink palette, as in
-// style.css: Hypersleep White lines, Synthetic grey labels, Cryo areas, Acid Blood for where the squad is). The only thing laid over it is the sector
-// the squad is in now; no soldiers, no hostiles, no door states: it's paper.
+// style.css: Hypersleep White lines, Synthetic grey labels, Cryo areas, Seegson green ventilation ducts and their
+// ceiling openings, Acid Blood for where the squad is). The only thing laid over it is the sector the squad is in now;
+// no soldiers, no hostiles, no door states: it's paper.
 
 // overlay: the full-screen element (hidden until opened), holding a canvas. currentSector(): [sx, sy] now.
 const PAPER = {
@@ -13,6 +14,7 @@ const PAPER = {
   label: "rgba(204,213,212,0.7)",         // column letters, row numbers
   muted: "rgba(122,128,127,0.85)",        // synthetic: room labels, sector names
   area: "rgba(101,191,198,0.75)",         // cryo: the named areas
+  duct: "rgba(5,182,105,0.7)",            // seegson: the ventilation ducts above the ceilings, and their openings
   here: "rgba(240,120,38,0.9)",           // acid: the sector the squad is in
   hereFill: "rgba(240,120,38,0.12)",
 };
@@ -117,6 +119,28 @@ function createPaperMap(overlay, { currentSector }) {
       }
     }
     ctx.stroke();
+
+    // the ventilation ducts (sectors.js: buildDucts), one network from THE NEST out to every ceiling opening: a line
+    // through the tile centres, carried on across the sector borders; each opening, a small square
+    ctx.strokeStyle = ctx.fillStyle = PAPER.duct;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let sy = 0; sy < N; sy++) for (let sx = 0; sx < N; sx++) {
+      const { ducts } = generateSector(sx, sy);
+      const P = (x, y) => [X(sx, x + 0.5), Y(sy, y + 0.5)];
+      for (const [x1, y1, x2, y2] of ducts.links) { ctx.moveTo(...P(x1, y1)); ctx.lineTo(...P(x2, y2)); }
+      for (const [x, y, dir] of ducts.out) {
+        const [dx, dy] = DIR[dir].d;
+        ctx.moveTo(...P(x, y)); ctx.lineTo(...P(x + dx * 0.5, y + dy * 0.5));
+      }
+    }
+    ctx.stroke();
+    for (let sy = 0; sy < N; sy++) for (let sx = 0; sx < N; sx++) {
+      for (const [x, y] of generateSector(sx, sy).vents) {
+        const s = Math.max(2, t * 0.9);
+        ctx.fillRect(X(sx, x + 0.5) - s / 2, Y(sy, y + 0.5) - s / 2, s, s);
+      }
+    }
 
     // accesses: a small mark joining the two hatches across the sector border; the entry, labelled
     ctx.strokeStyle = ctx.fillStyle = PAPER.ink;

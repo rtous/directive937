@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Optional MCP front-end for the Directive 937 bridge (the main setup is the pasted prompt in agent.html).
+// Optional MCP front-end for the Aliens: USCMC bridge (the main setup is the pasted prompt in agent.html).
 // It exposes the same commands as `node bridge.mjs ...` as MCP tools, and starts bridge.mjs if needed.
 //
 //   claude mcp add directive937 -e DIRECTIVE937_ORIGINS=https://your-game-server -- node /path/to/bridge/index.js

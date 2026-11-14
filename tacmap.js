@@ -38,7 +38,7 @@ function createTacticalMap(canvas, { colors, onWave = () => {} }) {
     const g = layer.getContext("2d");
 
     // faint reference grid
-    g.strokeStyle = "rgba(5,182,105,0.08)";
+    g.strokeStyle = "rgba(101,191,198,0.08)";
     g.lineWidth = 1;
     for (let x = 0; x <= w; x += w / 10) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
     for (let y = 0; y <= h; y += h / 8) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
@@ -59,13 +59,13 @@ function createTacticalMap(canvas, { colors, onWave = () => {} }) {
     }
     g.lineCap = "square";
     // wide soft glow, then a bright core
-    g.strokeStyle = "rgba(5,182,105,0.35)";
+    g.strokeStyle = "rgba(101,191,198,0.35)"; // cryo walls; vents and room labels stay green
     g.lineWidth = 6;
-    g.shadowColor = "#05b669";
+    g.shadowColor = "#65bfc6";
     g.shadowBlur = 14;
     g.stroke();
     g.shadowBlur = 4;
-    g.strokeStyle = "#3fe39a";
+    g.strokeStyle = "#9be3e8";
     g.lineWidth = 2;
     g.stroke();
 
@@ -95,7 +95,7 @@ function createTacticalMap(canvas, { colors, onWave = () => {} }) {
     for (const e of world.exits) {
       const { room: r, door } = e;
       const closed = chosen && chosen !== e;
-      ctx.strokeStyle = ctx.fillStyle = ctx.shadowColor = closed ? "#7a807f" : "#f07826";
+      ctx.strokeStyle = ctx.fillStyle = ctx.shadowColor = closed ? "#7a807f" : "#EEF2A0";
       ctx.shadowBlur = closed ? 0 : 10;
       ctx.globalAlpha = closed ? 0.6 : 0.5 + 0.4 * (0.55 + 0.45 * Math.sin(now / 300));
       ctx.lineWidth = 2;
@@ -197,7 +197,7 @@ function createTacticalMap(canvas, { colors, onWave = () => {} }) {
     });
     lastR = r;
     // blips: identical white dots where each hostile was caught, fading
-    ctx.fillStyle = ctx.shadowColor = "#ccd5d4"; // hypersleep
+    ctx.fillStyle = ctx.shadowColor = "#91E9E9"; // bluish white
     ctx.shadowBlur = 10;
     blips.forEach((b) => {
       const k = 1 - (now - b.at) / SONAR.fade;

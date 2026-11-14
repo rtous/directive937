@@ -3,179 +3,234 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Directive 937</title>
+  <title>Aliens: USCMC</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=VT323&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css"><!-- the dashboard's palette (variables) and fonts -->
+  <style>
+    /* The landing page: one CRT screen on the black background, same palette as the control deck (style.css). */
+    html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 28px 16px 40px;
+      background: var(--xeno);
+      line-height: 1.6;
+    }
+
+    /* ---------- the monitor ---------- */
+    .bezel {
+      width: 100%;
+      max-width: 880px;
+    }
+    .screen {
+      position: relative;
+      overflow: hidden;
+      border-radius: 4% / 3%;
+      background: var(--xeno);
+      box-shadow: inset 0 0 70px rgba(2, 9, 11, 0.95);
+      animation: crt-flicker 0.15s infinite;
+    }
+    .screen-in { position: relative; z-index: 1; padding: 44px 48px 40px; animation: power-on 0.9s ease-out both; }
+    /* scanlines, a slow rolling band and the vignette, over the content */
+    .screen::before, .screen::after, .roll { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+    .screen::before { background: repeating-linear-gradient(to bottom, rgba(2, 9, 11, 0.42) 0 1px, transparent 1px 3px); }
+    .screen::after { background: radial-gradient(ellipse at center, transparent 58%, rgba(2, 9, 11, 0.8) 100%); }
+    .roll {
+      height: 18%;
+      inset: auto 0 auto 0;
+      background: linear-gradient(to bottom, transparent, rgba(204, 213, 212, 0.05), transparent);
+      animation: roll-band 7s linear infinite;
+    }
+    @keyframes roll-band { from { top: -20%; } to { top: 110%; } }
+    @keyframes power-on {
+      0% { transform: scale(1, 0.004); filter: brightness(4); opacity: 0.6; }
+      45% { transform: scale(1, 0.004); filter: brightness(4); opacity: 1; }
+      70% { transform: scale(1, 1.04); filter: brightness(1.6); }
+      100% { transform: none; filter: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .screen, .screen-in, .roll, .cursor, .status-line b { animation: none !important; }
+    }
+
+    /* ---------- text ---------- */
+    .screen-in { color: var(--hypersleep); text-shadow: 0 0 4px rgba(145, 233, 233, 0.45), 1px 0 0 rgba(255, 60, 60, 0.18), -1px 0 0 rgba(60, 200, 255, 0.18); }
+    .boot { font-size: 11px; color: var(--synthetic); letter-spacing: 0.08em; }
+    .boot b { color: var(--seegson); font-weight: normal; }
+    .title {
+      margin: 18px 0 2px;
+      font-family: var(--crt-font);
+      font-weight: normal;
+      font-size: clamp(56px, 13vw, 118px);
+      line-height: 0.9;
+      letter-spacing: 0.04em;
+      color: var(--hypersleep);
+      text-shadow: 0 0 10px rgba(145, 233, 233, 0.6), 0 0 34px rgba(101, 191, 198, 0.35), 3px 0 0 rgba(255, 60, 60, 0.3), -3px 0 0 rgba(60, 200, 255, 0.3);
+    }
+    .title .colon { color: var(--acid); text-shadow: 0 0 12px var(--acid); }
+    .subtitle { font-size: 12px; letter-spacing: 0.32em; color: var(--acid); }
+    .cursor { display: inline-block; width: 0.55em; height: 0.85em; margin-left: 4px; vertical-align: -0.05em; background: var(--seegson); box-shadow: 0 0 6px var(--seegson); animation: blink 1s steps(1) infinite; }
+    .lead { margin: 22px 0 0; max-width: 62ch; font-size: 13.5px; }
+
+    h2 {
+      justify-content: flex-start;
+      align-items: center;
+      margin: 34px 0 12px;
+      padding-bottom: 6px;
+      border-bottom: 2px dashed var(--line);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      color: var(--acid);
+    }
+    h2 .tag { margin-left: 10px; padding: 1px 6px; border: 1px solid var(--yellow); color: var(--yellow); font-weight: normal; letter-spacing: 0.14em; text-shadow: 0 0 6px rgba(238, 242, 160, 0.4); }
+    p { font-size: 12.5px; max-width: 70ch; }
+    p + p { margin-top: 10px; }
+    .dim { color: var(--synthetic); }
+    code { font-family: var(--mono); color: var(--seegson); }
+    a { color: var(--cryo); }
+    pre {
+      margin: 8px 0 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      background: rgba(101, 191, 198, 0.04);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--hypersleep);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* steps */
+    ol.steps { list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 12px; }
+    ol.steps > li { counter-increment: step; position: relative; padding-left: 38px; font-size: 12.5px; }
+    ol.steps > li::before {
+      content: counter(step, decimal-leading-zero);
+      position: absolute; left: 0; top: -3px;
+      font-family: var(--crt-font); font-size: 22px; color: var(--cryo);
+      text-shadow: 0 0 6px rgba(101, 191, 198, 0.6);
+    }
+
+    /* agents: one card each */
+    .agents { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .agent { border: 2px solid var(--line); padding: 12px 14px; position: relative; }
+    .agent::before { content: ""; position: absolute; top: -2px; left: -2px; width: 14px; height: 14px; border-top: 3px solid var(--cryo); border-left: 3px solid var(--cryo); }
+    .agent h3 { font-size: 12px; letter-spacing: 0.14em; color: var(--seegson); margin-bottom: 6px; }
+    .agent p { font-size: 12px; }
+
+    /* ---------- buttons ---------- */
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; margin-top: 30px; }
+    .agent-actions { margin-top: 16px; }
+    .play-btn {
+      display: inline-flex; align-items: center; gap: 12px;
+      padding: 12px 28px 10px;
+      font-family: var(--crt-font); font-size: 30px; letter-spacing: 0.12em; line-height: 1;
+      text-decoration: none;
+      color: var(--deep);
+      background: var(--cryo);
+      border: 2px solid var(--cryo);
+      text-shadow: none;
+      box-shadow: 0 0 12px rgba(101, 191, 198, 0.6), 0 0 30px rgba(101, 191, 198, 0.3);
+      transition: box-shadow 0.15s, background 0.15s;
+    }
+    .play-btn:hover, .play-btn:focus-visible { outline: none; background: rgba(101, 191, 198, 0.88); box-shadow: 0 0 16px rgba(101, 191, 198, 0.85), 0 0 44px rgba(101, 191, 198, 0.45); }
+    .play-btn:active { background: var(--seegson); border-color: var(--seegson); }
+    .ghost-btn {
+      padding: 8px 16px;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+      text-decoration: none;
+      color: var(--cryo);
+      border: 2px solid rgba(101, 191, 198, 0.6);
+    }
+    .ghost-btn:hover, .ghost-btn:focus-visible { outline: none; border-color: var(--cryo); box-shadow: 0 0 10px rgba(101, 191, 198, 0.45); }
+
+    .status-line { margin-top: 36px; padding-top: 10px; border-top: 2px dashed var(--line); display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 11px; color: var(--synthetic); letter-spacing: 0.08em; }
+    .status-line b { font-weight: normal; color: var(--seegson); }
+    .status-line b.warn { color: var(--acid); animation: blink 1.2s steps(1) infinite; }
+
+    @media (max-width: 600px) {
+      body { padding: 12px 8px 24px; }
+      .screen-in { padding: 28px 16px 26px; }
+      .subtitle { letter-spacing: 0.18em; }
+      .play-btn { font-size: 26px; padding: 10px 20px 8px; }
+    }
+  </style>
 </head>
 <body>
-  <div class="console">
-    <header class="topbar panel">
-      <div class="brand">
-        <span class="brand-mark">◤</span>
-        <span>DIRECTIVE 937</span>
-        <span class="dim">// TACTICAL CONTROL DECK</span>
-      </div>
-      <div class="topbar-right">
-        <span class="dim">SHIP TIME</span> <span id="ship-clock">--:--:--</span>
-        <button class="status-pill audio-btn on" id="audio-btn" title="Toggle sound">AUDIO ON</button>
-        <span class="status-pill agent-pill" id="agent-pill" title="Connection to your local AI agent">AGENT: OFFLINE</span>
-        <button class="status-pill link-btn" id="link-btn" type="button">LINK AGENT</button>
-        <a href="agent.html" target="_blank" class="status-pill setup-btn" title="Connect your AI agent">⚙ AGENT SETUP</a>
-      </div>
-    </header>
+  <main class="bezel">
+    <div class="screen">
+      <div class="roll"></div>
+      <div class="screen-in">
+        <div class="boot">USCMC TACTICAL NET // TERMINAL 04 // <b>SIGNAL OK</b></div>
 
-    <aside class="col left">
-      <section class="panel map-panel">
-        <h2><span>TACTICAL MAP // <span id="level-name">--</span></span>
-          <span class="map-tools"><span id="map-coords" class="dim">--</span>
-            <button type="button" id="map-btn" class="map-btn" title="The whole complex, as a paper map (Esc to close)">⤢ FULL MAP</button></span></h2>
-        <div class="map-crt">
-          <canvas id="map" width="440" height="330"></canvas>
-          <div class="crt-scanlines"></div>
-          <div class="crt-vignette"></div>
-          <div class="map-dpad" id="move-pad" title="Letters: as far as possible that way. Arrows: to the next room, junction, dead end or sealed door that way">
-            <button type="button" data-act="north" class="far-n" title="Head north, as far as possible">N</button>
-            <button type="button" data-act="step-north" class="step-n" title="Move north: to the next room, junction, dead end or sealed door">▲</button>
-            <button type="button" data-act="west" class="far-w" title="Head west, as far as possible">W</button>
-            <button type="button" data-act="step-west" class="step-w" title="Move west: to the next room, junction, dead end or sealed door">◀</button>
-            <button type="button" data-act="hold" class="mid" title="Hold (press again to carry on)">■</button>
-            <button type="button" data-act="step-east" class="step-e" title="Move east: to the next room, junction, dead end or sealed door">▶</button>
-            <button type="button" data-act="east" class="far-e" title="Head east, as far as possible">E</button>
-            <button type="button" data-act="step-south" class="step-s" title="Move south: to the next room, junction, dead end or sealed door">▼</button>
-            <button type="button" data-act="south" class="far-s" title="Head south, as far as possible">S</button>
-          </div>
-        </div>
-      </section>
-      <section class="panel grow comms">
-        <h2>COMMS // SQUAD</h2>
-        <ol class="log" id="log"></ol>
-        <form class="comms-form" id="comms-form" autocomplete="off">
-          <span class="prompt-mark">&gt;</span>
-          <input id="comms-input" type="text" maxlength="300" placeholder="TRANSMIT (NAME A UNIT)..." spellcheck="false">
-          <button type="submit">SEND</button>
-        </form>
-      </section>
-    </aside>
+        <h1 class="title">ALIENS<span class="colon">:</span> USCMC</h1>
+        <div class="subtitle">COLONIAL MARINES // TACTICAL CONTROL<span class="cursor"></span></div>
 
-    <aside class="col right">
-      <section class="panel cam-panel">
-        <h2 id="cam-title">HELMET CAM // UNIT 01 <span class="rec">● REC</span></h2>
-        <div class="cam-row">
-        <div class="crt-bezel">
-          <div class="crt" id="crt">
-            <canvas id="feed" width="320" height="240"></canvas>
-            <div class="crt-scanlines"></div>
-            <div class="crt-roll"></div>
-            <div class="crt-vignette"></div>
-            <div class="crt-osd">
-              <div class="osd-top">
-                <span id="osd-channel">CH-01</span>
-                <span id="osd-out" title="Soldiers out through the exit">OUT 0/4</span>
-              </div>
-              <div class="osd-msg" id="osd-msg"></div>
-              <div class="mission-end" id="mission-end" hidden>
-                <b id="mission-end-title"></b>
-                <span id="mission-end-text"></span>
-                <span class="end-buttons">
-                  <button type="button" id="restart-btn">REGROUP</button>
-                  <button type="button" id="new-btn">NEW MISSION</button>
-                </span>
-              </div>
-              <div class="osd-bottom">
-                <span class="osd-name" id="soldier-name">SGT. R. FROST</span>
-                <span class="osd-time">MISSION TIME <span id="mission-time">00:00:00</span></span>
-              </div>
-            </div>
-          </div>
-        </div>
-          <div class="cam-select" id="cam-select" title="Whose helmet camera is on the monitor"></div>
-        </div>
-      </section>
-      <section class="panel vitals-panel">
-        <div class="crt-bezel strip">
-          <div class="crt strip" id="vitals-crt">
-            <canvas id="vitals-noise" width="160" height="24"></canvas>
-            <div class="crt-scanlines"></div>
-            <div class="crt-vignette"></div>
-            <div class="vitals-osd">
-              <span class="vitals-id"><span id="vitals-title">UNIT 01</span> <span id="vitals-name">SGT. R. FROST</span></span>
-              <div class="ecg-wrap"><canvas id="ecg" width="240" height="30"></canvas></div>
-              <div class="vitals-row">
-                <span>HR <b id="bpm">--</b></span>
-                <span>SPO2 <b id="o2">--</b></span>
-                <span>BP <b id="bp">--/--</b></span>
-                <span>RESP <b id="resp">--</b></span>
-                <span>HP <b id="hp">--</b></span>
-                <b id="vstatus">--</b>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-      <section class="panel squad-panel">
-        <div class="group-orders" id="group-orders">
-          <div class="squad-main">
-            <h2><label class="sel-all" title="Select the whole squad"><input type="checkbox" id="sel-all"> SQUAD</label> <span class="dim">ORDERS TO <b id="sel-count">NONE</b></span></h2>
-            <ul class="roster" id="roster" title="Tick soldiers to give them orders (none ticked: the one on camera)"></ul>
-            <div class="go-buttons">
-              <button type="button" data-act="hold" title="Stop and look around (press again to carry on)">HOLD</button>
-              <button type="button" data-act="slow" title="Move slowly: see further, aim better (press again for normal pace)">SLOW</button>
-              <button type="button" data-act="run" title="Run: faster, but see less (press again for normal pace)">RUN</button>
-              <button type="button" data-act="alert" title="Stop and look in all directions for 5 seconds, then carry on">ALERT</button>
-              <button type="button" data-act="getout" title="Each of them stops following anyone and runs to the nearest corridor, then holds there">OUT OF THERE</button>
-              <button type="button" data-act="seal" title="Weld the nearest door shut (20 s), or cut it open again if it's sealed (15 s). One soldier does it: the one on camera if ticked, else a group leader">SEAL/UNSEAL DOOR</button>
-              <select id="go-follow" title="Who they follow (NOBODY: stop and hold)"></select>
-            </div>
-          </div>
-          <div class="dpad look-pad" title="Where they look (until a few seconds after they move off)">
-            <svg class="look-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
-            <button type="button" data-act="look-north" class="n" title="Look north">▲</button>
-            <button type="button" data-act="look-west" class="w" title="Look west">◀</button>
-            <button type="button" data-act="look-around" class="c" title="Look all around (the default)">◉</button>
-            <button type="button" data-act="look-east" class="e" title="Look east">▶</button>
-            <button type="button" data-act="look-south" class="s" title="Look south">▼</button>
-          </div>
-        </div>
-      </section>
-    </aside>
+        <p class="lead">A colony has gone silent. You sit at the control deck of a ship in orbit and guide a squad of
+          four marines through the complex below, seeing only what their helmet cameras show, a tactical map with sonar
+          and their vitals. Find the nest, kill what lives in it and bring them back alive.</p>
 
-    <div class="paper-map" id="paper-map" hidden>
-      <div class="paper-head">
-        <span>COMPLEX MAP // SECTORS A1-H8</span>
-        <button type="button" data-close>✕ CLOSE</button>
+        <div class="actions">
+          <a class="play-btn" href="game.html">PLAY</a>
+        </div>
+
+        <h2>AI AGENT <span class="tag">OPTIONAL</span></h2>
+        <p>The game plays fine on its own: you give orders with the console buttons and the soldiers call in contacts
+          themselves. You can also link an AI agent running on your own computer. The agent then commands
+          and voices the whole squad: you talk to the marines in plain language over the radio ("Drake, hold the
+          corridor", "sneak into the medlab, don't shoot") and they answer in their own voices.</p>
+        <p class="dim">The agent talks to the game through a small bridge program: one file, no installs, needs Node.js
+          18 or newer. It only listens on your own machine (127.0.0.1) and only accepts this game's address.</p>
+        <div class="actions agent-actions">
+          <a class="ghost-btn" href="agent.html" target="_blank">⚙ AGENT SETUP</a>
+        </div>
+
+        <h2>LINKING CLAUDE CODE</h2>
+        <ol class="steps">
+          <li>Open a terminal and start Claude Code. To skip the approval prompt on every radio call, start it
+            with the bridge pre-approved:
+            <pre>claude --allowedTools "Bash(node ~/.directive937/bridge.mjs:*)"</pre></li>
+          <li>Open <a href="agent.html" target="_blank">⚙ AGENT SETUP</a>, press <code>COPY</code> and paste the prompt
+            into Claude Code. It downloads the bridge, starts it and prints a banner when it's ready.</li>
+          <li>Press <code>PLAY</code>, then press <code>LINK AGENT</code> in the top bar. If the browser asks to let the
+            page reach apps on your device, allow it. The top bar shows <code>AGENT: STANDING BY</code> when the
+            agent is listening.</li>
+          <li>Type your orders in the comms box. To finish, tell the agent to stop; it shuts the bridge down with
+            <code>node ~/.directive937/bridge.mjs stop</code>.</li>
+        </ol>
+
+        <h2>OTHER AGENTS</h2>
+        <div class="agents">
+          <div class="agent">
+            <h3>TERMINAL AGENTS</h3>
+            <p>Any coding agent that can run shell commands (Codex CLI, Gemini CLI and the like) can use the same
+              prompt from <a href="agent.html" target="_blank">AGENT SETUP</a>. Let it run
+              <code>node ~/.directive937/bridge.mjs</code> without asking each time, so the radio loop doesn't
+              stall.</p>
+          </div>
+          <div class="agent">
+            <h3>MCP CLIENTS</h3>
+            <p>Agents that use MCP tools can run the bridge as an MCP server instead (the <code>bridge/</code> folder):
+              same game, tools instead of commands. For Claude Code:</p>
+            <pre>cd bridge && npm install
+claude mcp add directive937 \
+  -e DIRECTIVE937_ORIGINS=<span id="origin">https://your-game-server</span> \
+  -- node /full/path/bridge/index.js</pre>
+          </div>
+        </div>
+
+        <div class="status-line">
+          <span>SQUAD <b>4/4 READY</b></span>
+          <span>COLONY <b class="warn">NO RESPONSE</b></span>
+          <span>AGENT LINK <b>OPTIONAL</b></span>
+        </div>
       </div>
-      <canvas></canvas>
     </div>
-
-    <footer class="bottombar panel">
-      <div class="ticker"><span id="ticker"></span></div>
-    </footer>
-  </div>
-  <div class="screen-crt" aria-hidden="true"></div>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- for the Mixamo soldier model (characters/*.fbx) -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
-  <!-- the game: level data and navigation, then the minds, the 3D world, and the control room -->
-  <script src="levels.js"></script>
-  <script src="sectors.js"></script>
-  <script src="doors.js"></script>
-  <script src="nav.js"></script>
-  <script src="walls.js"></script>
-  <script src="effects.js"></script>
-  <script src="models.js"></script>
-  <script src="behavior.js"></script>
-  <script src="hostiles.js"></script>
-  <script src="mission.js"></script>
-  <script src="world.js"></script>
-  <script src="audio.js"></script>
-  <script src="tacmap.js"></script>
-  <script src="papermap.js"></script>
-  <script src="main.js"></script>
-  <!-- optional: voice orders into the comms box (Chrome speech recognition); remove this line and voice.js to drop it -->
-  <script src="voice.js"></script>
+  </main>
+  <script>
+    // the MCP command needs this page's own address as the allowed origin
+    if (location.protocol.startsWith("http")) document.getElementById("origin").textContent = location.origin;
+  </script>
 </body>
 </html>

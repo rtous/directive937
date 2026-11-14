@@ -34,6 +34,9 @@ const BEHAVIOR = {
   panic: 5,          // danger score that makes a soldier run...
   safe: 2,           // ...and the score that counts as safe again
   hp: { soldier: 100, alien: 100 }, // health everyone starts with
+  energy: { drain: 4, rest: 0.8, walk: 0.4, recover: 30 }, // stamina (0-100): spent per second running, regained (slowly)
+                     // per second standing / walking; at 0 a soldier can't run until it's back to `recover`.
+                     // It carries over from one sector to the next (world.js: carry)
   damage: 10,        // health one rifle round takes off
   thinkEvery: 0.1,   // seconds between decisions
   report: {          // radio reports about hostiles (events for the agent)
@@ -1163,7 +1166,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       thinkT: index * 0.025, thinkDt: 0,
       glanceT: 2 + Math.random() * 4, glancing: false, glanceOff: 0, watchMoving: 0, watchAim: null,
       chargeCalled: new Map(), lostInfo: null, lostCalledAt: -99, trackerD: null, trackerCalledAt: -99,
-      hp: BEHAVIOR.hp.soldier, dead: false, welding: null,
+      hp: BEHAVIOR.hp.soldier, dead: false, welding: null, energy: 100, exhausted: false,
     });
   }
   soldiers.forEach(init);
@@ -1542,6 +1545,8 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     if (s.dead) return s.exited ? { health: s.hp, status: "EXITED" } : { health: 0, status: "KIA" };
     return {
       health: s.hp,
+      energy: Math.round(s.energy),
+      ...(s.exhausted ? { exhausted: true } : {}),
       status: s.hp > 60 ? "OK" : s.hp > 30 ? "WOUNDED" : "CRITICAL",
       team: s.team,
       following: s.leader ? s.leader.callsign : null,

@@ -1,7 +1,7 @@
 {
   "name": "directive937-bridge",
   "version": "0.1.0",
-  "description": "Connects the Directive 937 game (browser) to a local AI agent via MCP.",
+  "description": "Connects the Aliens: USCMC game (browser) to a local AI agent via MCP.",
   "type": "module",
   "main": "index.js",
   "bin": {

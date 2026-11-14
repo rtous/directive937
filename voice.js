@@ -5,7 +5,7 @@
 // on localhost or https). What is heard goes in the comms input and is sent as if typed.
 //
 // Self-contained on purpose: it only finds the comms form by its ids, adds its own button and styles, and sends
-// through the form's normal submit. To remove it, delete this file and its <script> line in index.html.
+// through the form's normal submit. To remove it, delete this file and its <script> line in game.html.
 //
 // Use: click the MIC button (click again to stop early), or hold the ` key (push to talk) while not typing.
 (() => {

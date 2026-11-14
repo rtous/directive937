@@ -7,16 +7,16 @@
 // is drawn as a simple placeholder figure (world.js). The animations are shared by all of them.
 const CHARACTER = {
   models: {
-    FROST: "characters/soldiers/frost.fbx",
-    VASQUEZ: "characters/soldiers/vasquez.fbx",
-    HUDSON: "characters/soldiers/hudson.fbx",
-    DRAKE: "characters/soldiers/drake.fbx",
+    FROST: "3D/soldiers/frost.fbx",
+    VASQUEZ: "3D/soldiers/vasquez.fbx",
+    HUDSON: "3D/soldiers/hudson.fbx",
+    DRAKE: "3D/soldiers/drake.fbx",
   },
-  model: "characters/Vanguard By T. Choonyung.fbx", // for anyone without a model of their own
-  walk: "characters/Walk With Rifle.fbx",
-  run: "characters/Run Forward.fbx",
-  idle: "characters/Rifle Turn.fbx",  // only its first frame: standing with the rifle up
-  fire: "characters/Firing Rifle.fbx",
+  model: "3D/soldiers/Vanguard By T. Choonyung.fbx", // for anyone without a model of their own
+  walk: "3D/animations/Walk With Rifle.fbx",
+  run: "3D/animations/Run Forward.fbx",
+  idle: "3D/animations/Rifle Turn.fbx",  // only its first frame: standing with the rifle up
+  fire: "3D/animations/Firing Rifle.fbx",
   height: 1.78,                       // metres
   walkClipSpeed: 1.31,                // m/s the walk clip was recorded at
   runClipSpeed: 3.5,                  // fallback if the run clip's speed can't be measured
@@ -25,7 +25,7 @@ const CHARACTER = {
 
 // Alien model (rigged, with idle/walk/run1/... animations). Its textures aren't linked inside the FBX, so they're
 // attached by material name.
-const XENO_DIR = "characters/realistic-xenomorph-rig/";
+const XENO_DIR = "3D/realistic-xenomorph-rig/";
 const XENO = {
   model: XENO_DIR + "source/Xenomorph Default.fbx",
   textures: { // material name (lower case) -> [colour map, normal map]
@@ -276,7 +276,7 @@ function alienFigure({ model, scale, clips }, size = 1) {
 // ---------- Alien eggs ----------
 // A static model: an egg on a root base, with web strands, standing on a patch of ground (cut out by an opacity
 // map). Its textures aren't linked inside the FBX (every material is "defaultMat"), so they're attached by mesh name.
-const EGG_DIR = "characters/alien-egg/";
+const EGG_DIR = "3D/alien-egg/";
 const EGG = {
   model: EGG_DIR + "source/aliengeggFULL.fbx",
   parts: { // mesh name -> which textures

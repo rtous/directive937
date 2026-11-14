@@ -46,7 +46,8 @@ function ceilingTexture() {
 
 // ---------- World ----------
 // squad: [{ id, name, callsign }], one soldier per entry, each with its own helmet camera. level: from levels.js.
-// carry: who comes in from the level before, [{ alive, hp, pace }] per soldier (null: everyone, at full health, normal pace).
+// carry: who comes in from the level before, [{ alive, hp, pace, energy, exhausted }] per soldier (null: everyone, at full
+// health and energy, normal pace).
 function createWorld(width, height, squad, level, carry = null) {
   const grid = levelGrid(level);
   const rooms = level.rooms;
@@ -593,11 +594,12 @@ function createWorld(width, height, squad, level, carry = null) {
     },
   });
 
-  // Who comes in from the level before: the others were lost there, and their health and pace carry over
+  // Who comes in from the level before: the others were lost there, and their health, energy and pace carry over
   if (carry) {
     soldiers.forEach((s, i) => {
       if (carry[i]?.alive) {
         s.hp = carry[i].hp;
+        if (carry[i].energy != null) { s.energy = carry[i].energy; s.exhausted = !!carry[i].exhausted; }
         if (carry[i].pace) { s.orders.pace = carry[i].pace; s.speed = BEHAVIOR.pace[carry[i].pace]; } // still SLOW / RUN
       }
       else { brain.absent(s); scene.remove(s.body); }
@@ -772,6 +774,7 @@ function createWorld(width, height, squad, level, carry = null) {
       brain.arrived(s);
     }
     brain.update(s, dt); // sets path, halt, speed, target, wantFire, gaze, glance
+    if (s.exhausted) s.speed = Math.min(s.speed, BEHAVIOR.pace.normal); // out of breath: walk, don't run
 
     // Firing: bursts while the brain wants to and the rifle points at the target
     if (s.fireLeft > 0) {
@@ -821,6 +824,12 @@ function createWorld(width, height, squad, level, carry = null) {
       s.walked += s.speed * dt;
     }
     s.moving = moving;
+    // Energy: running spends it, standing or walking brings it back
+    const E = BEHAVIOR.energy;
+    if (moving && running) s.energy = Math.max(0, s.energy - E.drain * dt);
+    else s.energy = Math.min(100, s.energy + (moving ? E.walk : E.rest) * dt);
+    if (s.energy <= 0) s.exhausted = true;
+    else if (s.exhausted && s.energy >= E.recover) s.exhausted = false;
 
     const [tx, ty] = unitPos(s);
     const px = tx * TILE, pz = ty * TILE;

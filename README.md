@@ -1,12 +1,13 @@
-# directive937
+# Aliens: USCMC
 
 A browser game: you sit in a spaceship control room and guide a squad through a 3D maze you can
 only see through their helmet cameras. The squad is commanded and voiced by an AI agent on your machine.
 
 ## Play
 
-Run `./serve.sh` and the game opens at http://localhost:8000 (`./serve.sh 9000` for another port).
-Opening `index.html` directly doesn't work: the browser blocks the 3D models on `file://` pages.
+Run `./serve.sh` and the landing page opens at http://localhost:8000 (`./serve.sh 9000` for another port);
+PLAY goes to the game (`game.html`). Opening the pages directly doesn't work: the browser blocks the
+3D models on `file://` pages.
 
 ## Connect an AI agent
 
@@ -50,7 +51,8 @@ nobody leaves by accident: only a deliberate order takes a soldier through: `got
 or `goto exit` for the one the squad is leaving through or else the nearest), a grid position inside one, or a
 direction (the console's direction pad included) that ends in one. A group following its leader goes through
 with them. The monitor shows how many are through (`OUT 1/4`). Once nobody is left inside, if at least one soldier went through, the next sector starts straight away: the squad
-arrives next to the matching access, with the health they had and still at the pace they were (SLOW / RUN). If they all died, the game freezes and SQUAD LOST
+arrives next to the matching access, with the health and energy they had (crossing doesn't rest them; energy comes back slowly, standing or walking)
+and still at the pace they were (SLOW / RUN). If they all died, the game freezes and SQUAD LOST
 shows over the camera feed: REGROUP brings the whole squad back, all four at full health, in the sector where it
 came into the AREA it's in (the named groups of sectors on the full map: ENTRY CONCOURSE, ENGINEERING DECKS...),
 arriving through the same access; NEW MISSION starts over at the entry. Soldiers lost along the way stay lost
@@ -186,7 +188,8 @@ Scripts load in this order (plain `<script>` tags, no build step):
 - `tacmap.js`: the tactical map with the sonar
 - `papermap.js`: the whole complex as a full-screen paper map
 - `main.js`: the control room: CRT feed, biomonitor, comms, squad console, agent link, levels, main loop
-- `index.html`, `style.css`: the control room layout
+- `index.html`: the landing page (title, what the optional AI agent does, how to link one)
+- `game.html`, `style.css`: the control room layout
 - `agent.html`: agent setup page; builds the prompt for wherever the game is hosted
 - `bridge.mjs`: local bridge between the game and the agent (single file, no dependencies)
 - `bridge/`: optional MCP wrapper around `bridge.mjs`

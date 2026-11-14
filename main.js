@@ -10,8 +10,8 @@
 const SQUAD = [
   { id: 1, name: "SGT. R. FROST", callsign: "FROST", color: "#ffa040" },
   { id: 2, name: "CPL. J. VASQUEZ", callsign: "VASQUEZ", color: "#4fd8ff", female: true },
-  { id: 3, name: "PVT. W. HUDSON", callsign: "HUDSON", color: "#ff6fa8" },
-  { id: 4, name: "PVT. M. DRAKE", callsign: "DRAKE", color: "#c09bff" },
+  { id: 3, name: "PVT. W. HUDSON", callsign: "HUDSON", color: "#05b669" },
+  { id: 4, name: "PVT. M. DRAKE", callsign: "DRAKE", color: "#EEF2A0" },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -163,7 +163,7 @@ fitCanvas(ecg, () => { ecgX = 0; ecgPrevY = ecg.height / 2; });
 
 const newVitals = () => SQUAD.map(() => ({
   bpm: Math.round(rand(80, 95)), resp: Math.round(rand(14, 18)),
-  sys: Math.round(rand(115, 128)), dia: Math.round(rand(72, 82)), o2: 97, hp: 100,
+  sys: Math.round(rand(115, 128)), dia: Math.round(rand(72, 82)), o2: 97, hp: 100, energy: 100,
 }));
 let vitals = newVitals();
 
@@ -212,10 +212,14 @@ function renderVitalsNoise(now) {
 // Heart rate and breathing follow how hard each soldier is working (walking, running) and the danger they're in
 // (hostiles close or in view, firing, fleeing: behavior.js's stress), the two adding up.
 const HEART = { rest: 78, walk: 10, run: 34, danger: 75, max: 190 }; // bpm: at rest, + moving, + danger at its worst
+function showEnergy(pct, alert = false) {
+  $("energy-fill").style.width = `${pct}%`;
+  $("energy").classList.toggle("alert", alert);
+}
 function updateVitals() {
   vitals.forEach((v, i) => {
     const s = soldier(i);
-    if (s && s.dead) return Object.assign(v, { bpm: 0, resp: 0, sys: 0, dia: 0, o2: 0, hp: s.exited ? s.hp : 0 });
+    if (s && s.dead) return Object.assign(v, { bpm: 0, resp: 0, sys: 0, dia: 0, o2: 0, hp: s.exited ? s.hp : 0, energy: 0 });
     const stress = s ? s.stress : 0;
     const effort = !s || !s.moving ? 0 : s.speed > CHARACTER.runAbove ? 1 : 0.3; // still, walking, running
     const exertion = effort === 1 ? HEART.run : effort ? HEART.walk : 0;
@@ -225,12 +229,14 @@ function updateVitals() {
     v.dia = Math.round(clamp(v.dia + rand(-1.5, 1.5), 65, 95));
     v.o2 = Math.round(rand(94, 99));
     v.hp = s ? s.hp : 100;
+    v.energy = s ? Math.round(s.energy) : 100;
   });
   const v = vitals[selected];
   const s = soldier(selected);
   const show = (id, text, alert = false) => { $(id).textContent = text; $(id).classList.toggle("alert", alert); };
   if (s && s.exited) { // out of the level: no telemetry, but not a death
     ["bpm", "o2", "bp", "resp", "hp"].forEach((id) => show(id, "--"));
+    showEnergy(0);
     return show("vstatus", "EXITED");
   }
   const dead = !!s && s.dead;
@@ -240,6 +246,7 @@ function updateVitals() {
   show("bp", `${v.sys}/${v.dia}`);
   show("resp", v.resp);
   show("hp", v.hp, v.hp <= 30);
+  showEnergy(v.energy, !dead && v.energy <= 20);
   show("vstatus", dead ? "NO LIFE" : v.hp <= 30 ? "CRITICAL" : stressed ? "STRESS" : "STABLE", dead || stressed || v.hp <= 30);
 }
 
@@ -376,7 +383,7 @@ function fullStatus() {
   if (!world) return null;
   const st = world.status();
   st.units.forEach((u, i) => {
-    u.vitals = { heart_rate: vitals[i].bpm, spo2: vitals[i].o2, resp: vitals[i].resp };
+    u.vitals = { heart_rate: vitals[i].bpm, spo2: vitals[i].o2, resp: vitals[i].resp, energy: vitals[i].energy };
   });
   st.on_camera = SQUAD[selected].id;
   return st;
@@ -828,7 +835,8 @@ function endSector({ win, victory, reason, exit }) {
     return;
   }
   if (win) {
-    const carry = world.soldiers.map((s) => ({ alive: !!s.exited, hp: s.hp, pace: s.orders.pace })); // pace: SLOW / RUN kept
+    // pace: SLOW / RUN kept; energy too (crossing to another sector doesn't rest them)
+    const carry = world.soldiers.map((s) => ({ alive: !!s.exited, hp: s.hp, pace: s.orders.pace, energy: s.energy, exhausted: s.exhausted }));
     const { out, lost } = world.mission.status();
     crossing = { out, lost, via: exit.dir }; // said on arrival, with the new sector
     // after this frame's world update has finished with the old world

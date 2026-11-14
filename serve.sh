@@ -1,5 +1,5 @@
 #!/bin/sh
-# Serve the game locally so the 3D models load (browsers block them when opening index.html directly).
+# Serve the game locally so the 3D models load (browsers block them when opening the pages directly).
 # Usage: ./serve.sh [port]    (default port 8000), then stop it with Ctrl+C.
 
 PORT="${1:-8000}"

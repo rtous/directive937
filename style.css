@@ -1,21 +1,26 @@
 /*
- * Palette and look from paperocalypse (the Sevastolink palette, after the Seegson consoles of "Alien: Isolation"):
- *   Xenomorph Skin #0c290c (background) · Terminal Green #134213 · Seegson Green #05b669 (primary)
- *   Acid Blood #f07826 (secondary accents: titles, the brand, warnings) · Hypersleep White #ccd5d4 (text)
- *   Cryo #65bfc6 (the main buttons, with a soft glow) · Synthetic Skin #7a807f (muted text)
- * Green and orange share the work so the green doesn't dominate.
+ * Palette, after the screens in the movie. Only these colors (plus greys):
+ *   Black #02090B (background) · Bluish White #91E9E9 (all text and numbers)
+ *   Cryo blue #65bfc6 (lines, borders, the main buttons, with a soft glow)
+ *   Seegson green #05b669 (active, selected, radar markers, ECG) · Acid orange #f07826 (titles, the brand, warnings, alerts)
+ *   Yellow #EEF2A0 (PVT. Drake, exits on the tactical map, work in progress: hold/weld, the agent busy)
+ *   Synthetic Skin #7a807f (muted text, grey)
+ * Variable names are kept from the earlier palette (--seegson is the green, --acid the orange, --cryo the blue...).
  */
 :root {
-  --xeno: #0c290c;
-  --terminal: #134213;
+  --xeno: #02090B;
+  --terminal: #02090B;
   --seegson: #05b669;
   --acid: #f07826;
-  --hypersleep: #ccd5d4;
+  --hypersleep: #91E9E9;   /* text: bluish white */
+  --white: #91E9E9;        /* bright text: the same bluish white */
   --cryo: #65bfc6;
+  --yellow: #EEF2A0;
   --synthetic: #7a807f;
-  --panel: #0f330f;
-  --deep: #071a07;
-  --line: #1f5a2a;
+  --panel: #02090B;
+  --deep: #02090B;
+  --line: #1e5560;          /* dim Cryo: borders, dividers */
+  --line-hi: var(--cryo);   /* hover / focus */
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --crt-font: "VT323", "JetBrains Mono", monospace;
 }
@@ -43,9 +48,7 @@ html, body {
     "top top"
     "left right"
     "bottom bottom";
-  background:
-    radial-gradient(ellipse at center, rgba(5, 182, 105, 0.07), transparent 70%),
-    var(--xeno);
+  background: var(--xeno);
 }
 ::selection { background: var(--seegson); color: var(--deep); }
 html { scrollbar-color: var(--line) var(--deep); }
@@ -59,10 +62,10 @@ html { scrollbar-color: var(--line) var(--deep); }
 
 .panel {
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   border-radius: 4px;
   padding: 10px 12px;
-  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 0 20px rgba(2, 9, 11, 0.5);
   position: relative;
 }
 .panel::before { /* corner notch */
@@ -70,8 +73,8 @@ html { scrollbar-color: var(--line) var(--deep); }
   position: absolute;
   top: -1px; left: -1px;
   width: 10px; height: 10px;
-  border-top: 2px solid var(--seegson);
-  border-left: 2px solid var(--seegson);
+  border-top: 3px solid var(--cryo);
+  border-left: 3px solid var(--cryo);
 }
 
 h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
@@ -80,7 +83,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   color: var(--acid);
   margin-bottom: 10px;
   padding-bottom: 6px;
-  border-bottom: 1px dashed var(--line);
+  border-bottom: 2px dashed var(--line);
   display: flex;
   justify-content: space-between;
 }
@@ -99,7 +102,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .topbar-right { display: flex; gap: 10px; align-items: center; }
 .status-pill {
   padding: 2px 8px;
-  border: 1px solid currentColor;
+  border: 2px solid currentColor;
   font-size: 11px;
 }
 .audio-btn {
@@ -122,14 +125,14 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   cursor: pointer;
   min-width: 0;
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--unit, transparent) 70%, transparent);
 }
 .roster li > span { color: var(--unit, var(--synthetic)); opacity: 0.85; }
 .roster li b { font-weight: normal; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.roster li:hover { border-color: var(--seegson); }
+.roster li:hover { border-color: var(--line-hi); }
 .roster li:has(.pick:checked) { border-color: var(--seegson); background: var(--terminal); }
 /* selection checkboxes: one per soldier and one for the whole squad (in the panel title) */
 .roster input[type="checkbox"], .sel-all input {
@@ -156,7 +159,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .go-buttons select { grid-column: span 2; } /* FOLLOW fills the second row */
 .group-orders button, .group-orders select {
   background: transparent;
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   color: var(--hypersleep);
   font: inherit;
   font-size: 9px;
@@ -167,7 +170,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   min-width: 0;
 }
 .group-orders select { background: var(--deep); color: var(--seegson); padding: 3px 2px; }
-.group-orders button:hover:not(:disabled), .group-orders select:hover:not(:disabled) { border-color: var(--seegson); color: var(--seegson); }
+.group-orders button:hover:not(:disabled), .group-orders select:hover:not(:disabled) { border-color: var(--line-hi); color: var(--cryo); }
 .group-orders button:active:not(:disabled) { background: var(--seegson); color: var(--deep); }
 .group-orders button.on { background: var(--seegson); border-color: var(--seegson); color: var(--deep); }
 .group-orders button:disabled, .group-orders select:disabled { opacity: 0.3; cursor: default; }
@@ -180,7 +183,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   grid-template-rows: repeat(3, 38px);
   gap: 3px;
   padding-left: 12px;
-  border-left: 1px dashed var(--line);
+  border-left: 2px dashed var(--line);
 }
 .dpad button { padding: 0; font-size: 18px; color: var(--seegson); background: var(--deep); }
 .dpad .c { font-size: 12px; }
@@ -196,8 +199,8 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
    that way), the arrows inside (one leg: to the next room, junction, dead end or sealed door) */
 .map-dpad {
   position: absolute;
-  right: 6%;
-  bottom: 7%;
+  right: 2.5%;
+  bottom: 3%;
   z-index: 2;
   display: grid;
   grid-template-columns: repeat(5, 22px);
@@ -210,8 +213,8 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   font-size: 11px;
   line-height: 1;
   color: var(--seegson);
-  border: 1px solid var(--line);
-  background: rgba(7, 26, 7, 0.75);
+  border: 2px solid var(--line);
+  background: rgba(2, 9, 11, 0.75);
   cursor: pointer;
 }
 .map-dpad [class^="far-"] { font-family: var(--crt-font); font-size: 16px; color: var(--hypersleep); }
@@ -224,7 +227,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .map-dpad .far-e { grid-area: 3 / 5; }
 .map-dpad .step-s { grid-area: 4 / 3; }
 .map-dpad .far-s { grid-area: 5 / 3; }
-.map-dpad button:hover:not(:disabled) { border-color: var(--seegson); }
+.map-dpad button:hover:not(:disabled) { border-color: var(--line-hi); }
 .map-dpad button:active:not(:disabled) { background: var(--seegson); color: var(--deep); }
 .map-dpad button.on { background: var(--seegson); border-color: var(--seegson); color: var(--deep); }
 .map-dpad button:disabled { opacity: 0.3; cursor: default; }
@@ -238,8 +241,8 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   position: relative;
   overflow: hidden;
   border-radius: 8% / 8%;
-  background: #031003;
-  box-shadow: 0 0 0 2px #000, inset 0 0 30px rgba(0, 0, 0, 0.9);
+  background: var(--xeno);
+  box-shadow: 0 0 0 2px var(--xeno), inset 0 0 30px rgba(2, 9, 11, 0.9);
   animation: crt-flicker 0.15s infinite;
 }
 #map { /* the drawing buffer follows this size (see main.js) */
@@ -251,7 +254,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   filter: blur(0.3px);
 }
 .map-crt .crt-scanlines {
-  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.5) 0 1px, transparent 1px 3px);
+  background: repeating-linear-gradient(to bottom, rgba(2, 9, 11, 0.5) 0 1px, transparent 1px 3px);
 }
 
 /* ---------- Biomonitor: one slim line under the camera ---------- */
@@ -265,7 +268,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   border-radius: 8px / 50%;
   animation-duration: 0.17s;
 }
-.crt.strip .crt-vignette { box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.9); background: none; }
+.crt.strip .crt-vignette { box-shadow: inset 0 0 12px rgba(2, 9, 11, 0.9); background: none; }
 #vitals-noise {
   position: absolute;
   inset: 0;
@@ -286,17 +289,21 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   font-family: var(--crt-font);
   font-size: 15px;
   white-space: nowrap;
-  color: #fff;
-  text-shadow: 0 0 4px rgba(255, 255, 255, 0.7), 1px 0 0 rgba(255, 60, 60, 0.35), -1px 0 0 rgba(60, 200, 255, 0.35);
+  color: var(--white);
+  text-shadow: 0 0 4px rgba(145, 233, 233, 0.7), 1px 0 0 rgba(255, 60, 60, 0.35), -1px 0 0 rgba(60, 200, 255, 0.35);
   pointer-events: none;
   animation: osd-jitter 4s infinite;
 }
 #vitals-title { color: var(--seegson); text-shadow: 0 0 4px var(--seegson); }
-.ecg-wrap { position: relative; flex: 1 1 40px; min-width: 40px; align-self: stretch; }
+.ecg-wrap { position: relative; flex: 0 1 180px; min-width: 40px; align-self: stretch; }
 #ecg { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(0.4px); }
 .vitals-row { display: flex; gap: 12px; align-items: baseline; }
-.vitals-row span { color: rgba(255, 255, 255, 0.55); font-size: 13px; }
-.vitals-row b { font-weight: normal; font-size: 17px; color: #fff; }
+.vitals-row span { color: rgba(145, 233, 233, 0.55); font-size: 13px; }
+.vitals-row b { font-weight: normal; font-size: 17px; color: var(--white); }
+.energy-bar { display: inline-block; position: relative; width: 60px; height: 9px; border: 1px solid rgba(145, 233, 233, 0.7); box-shadow: 0 0 4px rgba(145, 233, 233, 0.4); }
+#energy-fill { position: absolute; left: 1px; top: 1px; bottom: 1px; width: 100%; max-width: calc(100% - 2px); background: var(--white); box-shadow: 0 0 4px rgba(145, 233, 233, 0.7); transition: width 0.4s linear; }
+.energy-bar.alert { border-color: var(--acid); animation: blink 0.8s steps(1) infinite; }
+.energy-bar.alert #energy-fill { background: var(--acid); box-shadow: 0 0 5px var(--acid); }
 #vstatus { min-width: 7ch; text-align: right; color: var(--seegson); text-shadow: 0 0 4px var(--seegson); }
 .vitals-row b.alert, #vstatus.alert { color: var(--acid); text-shadow: 0 0 5px var(--acid); animation: blink 0.8s steps(1) infinite; }
 
@@ -304,7 +311,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .map-tools { display: inline-flex; align-items: center; gap: 10px; }
 .map-btn {
   background: transparent;
-  border: 1px solid rgba(101, 191, 198, 0.6);
+  border: 2px solid rgba(101, 191, 198, 0.6);
   color: var(--cryo);
   font: inherit;
   font-size: 10px;
@@ -317,7 +324,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: #071a07; /* deep, as the sheet (papermap.js) */
+  background: var(--xeno); /* as the sheet (papermap.js) */
   display: flex;
   flex-direction: column;
 }
@@ -333,7 +340,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 }
 .paper-head button {
   background: transparent;
-  border: 1px solid var(--cryo);
+  border: 2px solid var(--cryo);
   color: var(--cryo);
   font: inherit;
   font-size: 11px;
@@ -364,7 +371,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .log li.alert { color: var(--acid); }
 .log li.player { opacity: 1; }
 .log li.player .who { color: var(--cryo); }
-.log li.soldier { opacity: 1; color: #fff; }
+.log li.soldier { opacity: 1; color: var(--white); }
 .log li.soldier .who { color: var(--seegson); }
 .log li.mother .who { color: var(--acid); }
 .log li.system { color: var(--synthetic); font-style: italic; }
@@ -375,10 +382,10 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   gap: 6px;
   margin-top: 8px;
   padding: 6px 8px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   background: var(--deep);
 }
-.comms-form:focus-within { border-color: var(--seegson); }
+.comms-form:focus-within { border-color: var(--line-hi); }
 .prompt-mark { color: var(--seegson); animation: blink 1s steps(1) infinite; }
 .comms-form input {
   flex: 1;
@@ -394,7 +401,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .comms-form input::placeholder { color: var(--synthetic); }
 .comms-form button {
   background: var(--terminal);
-  border: 1px solid rgba(101, 191, 198, 0.6);
+  border: 2px solid rgba(101, 191, 198, 0.6);
   color: var(--cryo);
   font: inherit;
   font-size: 10px;
@@ -426,10 +433,10 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .setup-btn:hover { background: rgba(101, 191, 198, 0.88); box-shadow: 0 0 14px rgba(101, 191, 198, 0.85), 0 0 36px rgba(101, 191, 198, 0.45); }
 .agent-pill.linked { color: var(--cryo); }
 .agent-pill.listening { color: var(--seegson); }
-.agent-pill.busy { color: var(--acid); animation: blink 0.8s steps(1) infinite; }
+.agent-pill.busy { color: var(--yellow); animation: blink 0.8s steps(1) infinite; }
 
 /* ---------- Ticker ---------- */
-.bottombar { overflow: hidden; white-space: nowrap; font-size: 11px; color: var(--seegson); }
+.bottombar { overflow: hidden; white-space: nowrap; font-size: 11px; color: var(--cryo); }
 .ticker span { display: inline-block; padding-left: 100%; animation: ticker 45s linear infinite; }
 
 /* ---------- CRT camera ---------- */
@@ -448,7 +455,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   gap: 2px;
   padding: 6px 12px;
   background: var(--deep);
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   border-left: 4px solid color-mix(in srgb, var(--unit) 70%, transparent);
   color: var(--hypersleep);
   font: inherit;
@@ -458,7 +465,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .cam-select .cs-id { font-family: var(--crt-font); font-size: 34px; line-height: 0.9; color: var(--unit); }
 .cam-select b { font-weight: normal; font-size: 12px; letter-spacing: 0.12em; }
 .cam-select em { font-style: normal; font-size: 10px; color: var(--synthetic); letter-spacing: 0.08em; }
-.cam-select button:hover { border-color: var(--seegson); border-left-color: var(--unit); }
+.cam-select button:hover { border-color: var(--line-hi); border-left-color: var(--unit); }
 .cam-select button.active {
   background: var(--terminal);
   border-color: var(--seegson);
@@ -473,12 +480,12 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   letter-spacing: 0.08em;
   padding: 0 4px;
   line-height: 13px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   color: var(--cryo);
 }
 .cam-select .cs-tags i:empty { display: none; }
 .cam-select .cs-mode { background: var(--seegson); border-color: var(--seegson) !important; color: var(--deep) !important; }
-.cam-select .cs-mode[data-mode="hold"], .cam-select .cs-mode[data-mode="weld"] { background: var(--acid); border-color: var(--acid) !important; }
+.cam-select .cs-mode[data-mode="hold"], .cam-select .cs-mode[data-mode="weld"] { background: var(--yellow); border-color: var(--yellow) !important; }
 .cam-select button.dead { opacity: 0.45; }
 .cam-select button.out { opacity: 0.6; }
 .cam-select button.out em { color: var(--cryo); }
@@ -492,10 +499,10 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   align-items: center;
   justify-content: center;
   padding: 18px;
-  background: linear-gradient(145deg, #1b1f1b, #0a0c0a);
+  background: linear-gradient(145deg, #15191c, #050607);
   border-radius: 14px;
-  border: 1px solid #000;
-  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.06), inset 0 -4px 10px rgba(0, 0, 0, 0.8);
+  border: 1px solid var(--xeno);
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.06), inset 0 -4px 10px rgba(2, 9, 11, 0.8);
 }
 
 .crt {
@@ -505,13 +512,13 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   max-width: 100%;
   aspect-ratio: 4 / 3;
   overflow: hidden;
-  background: #050805;
+  background: var(--xeno);
   /* rounded, slightly bulging tube */
   border-radius: 6% / 8%;
   box-shadow:
-    0 0 0 3px #000,
+    0 0 0 3px var(--xeno),
     0 0 30px rgba(204, 213, 212, 0.08),
-    inset 0 0 60px rgba(0, 0, 0, 0.9);
+    inset 0 0 60px rgba(2, 9, 11, 0.9);
   animation: crt-flicker 0.12s infinite;
 }
 
@@ -529,7 +536,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   inset: 0;
   pointer-events: none;
   background:
-    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.45) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(to bottom, rgba(2, 9, 11, 0.45) 0 1px, transparent 1px 3px),
     repeating-linear-gradient(to right, rgba(255, 0, 0, 0.04) 0 1px, rgba(0, 255, 0, 0.03) 1px 2px, rgba(0, 0, 255, 0.04) 2px 3px);
 }
 
@@ -547,8 +554,8 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.75) 100%);
-  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.9);
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(2, 9, 11, 0.75) 100%);
+  box-shadow: inset 0 0 80px rgba(2, 9, 11, 0.9);
 }
 
 .crt-osd {
@@ -559,9 +566,9 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   flex-direction: column;
   justify-content: space-between;
   font-family: var(--crt-font);
-  color: #fff;
+  color: var(--white);
   text-transform: uppercase;
-  text-shadow: 0 0 4px rgba(255, 255, 255, 0.8), 2px 0 0 rgba(255, 60, 60, 0.35), -2px 0 0 rgba(60, 200, 255, 0.35);
+  text-shadow: 0 0 4px rgba(145, 233, 233, 0.8), 2px 0 0 rgba(255, 60, 60, 0.35), -2px 0 0 rgba(60, 200, 255, 0.35);
   pointer-events: none;
   animation: osd-jitter 3s infinite;
 }
@@ -574,7 +581,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   font-size: 5.5cqw;
   letter-spacing: 0.15em;
   padding: 0 0.4em;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(2, 9, 11, 0.55);
   visibility: hidden;
 }
 .osd-msg.show { visibility: visible; animation: blink 0.6s steps(1) infinite; }
@@ -630,8 +637,8 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   align-items: center;
   gap: 0.5em;
   padding: 0.8em 1.4em;
-  background: rgba(0, 0, 0, 0.75);
-  border: 1px solid currentColor;
+  background: rgba(2, 9, 11, 0.75);
+  border: 2px solid currentColor;
   text-align: center;
   font-size: 3.2cqw;
   pointer-events: auto;
@@ -643,7 +650,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .mission-end button {
   margin-top: 0.4em;
   background: transparent;
-  border: 1px solid currentColor;
+  border: 2px solid currentColor;
   color: inherit;
   font: inherit;
   font-size: 2.6cqw;
@@ -663,8 +670,8 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   z-index: 100;
   pointer-events: none;
   background:
-    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(to bottom, rgba(2, 9, 11, 0.16) 0 1px, transparent 1px 3px),
     linear-gradient(to bottom, rgba(204, 213, 212, 0.025), transparent 35%),
-    radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.42) 100%);
+    radial-gradient(ellipse at center, transparent 62%, rgba(2, 9, 11, 0.42) 100%);
 }
-.console, .paper-map { text-shadow: 0 0 3px rgba(204, 213, 212, 0.18); }
+.console, .paper-map { text-shadow: 0 0 3px rgba(145, 233, 233, 0.18); }

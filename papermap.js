@@ -8,10 +8,10 @@
 
 // overlay: the full-screen element (hidden until opened), holding a canvas. currentSector(): [sx, sy] now.
 const PAPER = {
-  sheet: "#071a07",                       // deep
-  ink: "rgba(204,213,212,0.85)",          // hypersleep: walls, accesses, the entry
+  sheet: "#02090B",                       // black
+  ink: "rgba(145, 233, 233,0.85)",          // hypersleep: walls, accesses, the entry
   faint: "rgba(204,213,212,0.16)",        // the sector grid
-  label: "rgba(204,213,212,0.7)",         // column letters, row numbers
+  label: "rgba(145, 233, 233,0.7)",         // column letters, row numbers
   muted: "rgba(122,128,127,0.85)",        // synthetic: room labels, sector names
   area: "rgba(101,191,198,0.75)",         // cryo: the named areas
   duct: "rgba(5,182,105,0.7)",            // seegson: the ventilation ducts above the ceilings, and their openings

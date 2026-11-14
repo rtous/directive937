@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Directive 937 bridge: links the game (in the browser) to an AI agent on the same machine.
+// Aliens: USCMC bridge: links the game (in the browser) to an AI agent on the same machine.
 // Single file, no dependencies, Node 18+. Served by the game server so a pasted prompt can fetch it.
 //
 //   game (browser)  --HTTP/SSE-->  bridge (127.0.0.1:8937)  <--CLI--  agent (e.g. Claude Code)
@@ -329,7 +329,7 @@ function parseFlags(argv) {
   return flags;
 }
 
-const HELP = `Directive 937 bridge ${VERSION}
+const HELP = `Aliens: USCMC bridge ${VERSION}
   start [--origin URL]... [--allow-file] [--port N]   start in the background
   wait [seconds]                                      wait for the next transmission (default 100s)
   order <who> <order> [argument...]                   e.g. order all south | order 2 goto medlab | order all pace slow

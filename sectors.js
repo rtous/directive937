@@ -23,6 +23,7 @@ const SECTORS = {
   boss: [7, 0],         // sector H1: THE NEST, where the giant is
   quiet: 1,             // sectors this many steps (or fewer) from the entry have no hostiles
   extraLinks: 0.18,     // share of the remaining neighbour pairs linked on top of the maze
+  forcedLinks: [[3, 7, "west"]], // links that are always there: the entry D8 to C8, on its left
 };
 const DIR = {
   north: { d: [0, -1], back: "south" }, south: { d: [0, 1], back: "north" },
@@ -80,10 +81,12 @@ const sectorLinks = (() => {
         if (inside(x + dx, y + dy) && !links.has(`${x},${y},${dir}`) && rnd() < SECTORS.extraLinks) add(x, y, dir);
       }
     }
+    for (const [x, y, dir] of SECTORS.forcedLinks) add(x, y, dir); // always there, whatever the maze gave
     return links;
   };
 })();
-// Named areas spanning several sectors, drawn on the paper map. Decoration only: they change nothing in the game.
+// Named areas spanning several sectors, drawn on the paper map. Every sector is in one. When the whole squad is
+// lost, it comes back, all of it, in the sector where it came into the area it's in (main.js).
 // cells: [[sx1, sy1, sx2, sy2]] rectangles of sectors (inclusive); an area can be several.
 const MAP_AREAS = [
   { name: "RESEARCH DIVISION", cells: [[0, 0, 2, 2], [0, 3, 1, 3]] },
@@ -95,6 +98,8 @@ const MAP_AREAS = [
   { name: "ENGINEERING DECKS", cells: [[4, 5, 7, 7], [3, 4, 4, 4]] },
   { name: "ENTRY CONCOURSE", cells: [[3, 5, 3, 7]] },
 ];
+// The area sector (sx, sy) is in (null if none)
+const areaOf = (sx, sy) => MAP_AREAS.find((a) => a.cells.some(([x1, y1, x2, y2]) => sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2)) || null;
 
 const sectorAccesses = (sx, sy) => Object.keys(DIR).filter((dir) => sectorLinks().has(`${sx},${sy},${dir}`));
 
@@ -128,6 +133,13 @@ const ROOM_KINDS = [
 ];
 const NEST = ["THE NEST", "NEST", ["nest", "hive", "lair", "giant"], ["ribbed", ["pipes", "cables"]], 0xff6040,
   "A vast chamber under a towering ceiling, its walls crusted with resin. In the middle, something enormous sits perfectly still."];
+// Alien eggs: in the rooms of the boss sector and the sectors around it (reach: steps, diagonals too). packed:
+// rooms packed with eggs, clusters: share of the other rooms with a cluster in a corner, both [around, boss sector];
+// cluster: eggs in a cluster [min, max].
+const EGGS = { reach: 1, packed: [1, 2], clusters: [0.5, 0.8], cluster: [3, 6] };
+
+// Share of a sector's floor in fog: [in the far corner of the map, next to the nest]
+const FOG = { share: [0.25, 0.65] };
 const FOG_KINDS = [
   "Steam venting from a cracked pipe.", "Smoke hanging in the air, something smouldering.",
   "Thick condensation fog rolling across the floor.", "Coolant vapour leaking from a ruptured line.",
@@ -341,13 +353,77 @@ function generateSector(sx, sy) {
   if (!vents.length) vents.push(pick([...slots.filter((s) => s.there && !s.room).map((s) => s.c), ...corridorTiles]));
   // red lights: along the corridors (above), plus a corner of some rooms
   for (const s of roomSlots) if (rnd() < 0.5) lights.push([s.room.x, s.room.y]);
-  // steam or smoke in a room or two
-  const fog = roomSlots.filter(() => rnd() < 0.15).slice(0, 2)
-    .map((s) => ({ area: [s.room.x, s.room.y, s.room.x + s.room.w - 1, s.room.y + s.room.h - 1], what: pick(FOG_KINDS) }));
+  // steam or smoke: plenty everywhere, and more the closer the sector is to THE NEST. Rooms and corridor runs, in
+  // a random order, until about the sector's share of its floor is fogged. Never the nest itself, so the squad can
+  // see the giant.
+  const nearNest = 1 - (Math.abs(sx - SECTORS.boss[0]) + Math.abs(sy - SECTORS.boss[1])) / ((SECTORS.size - 1) * 2); // 0..1
+  const fogShare = FOG.share[0] + (FOG.share[1] - FOG.share[0]) * nearNest;
+  const fogGrid = levelGrid({ width: T, height: T, rooms, corridors, blocks });
+  const floorTiles = fogGrid.flat().filter((v) => v === 0).length;
+  const fogged = new Set();
+  const candidates = [
+    ...roomSlots.filter((s) => !s.nest).map((s) => [s.room.x, s.room.y, s.room.x + s.room.w - 1, s.room.y + s.room.h - 1]),
+    ...corridors.map(([x1, y1, x2, y2]) => [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]),
+  ];
+  const fog = [];
+  while (candidates.length && fogged.size < fogShare * floorTiles) {
+    const area = candidates.splice(Math.floor(rnd() * candidates.length), 1)[0];
+    const [x1, y1, x2, y2] = area;
+    if (fogged.size + (x2 - x1 + 1) * (y2 - y1 + 1) > (fogShare + 0.1) * floorTiles) continue; // would overshoot by far
+    for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) if (fogGrid[y][x] === 0) fogged.add(y * T + x);
+    fog.push({ area, what: pick(FOG_KINDS) });
+  }
+
+  // alien eggs: in the rooms of the nest's sector and the sectors around it. Each egg: [x, y, dx, dy, size]: its
+  // tile, an offset within it (in tiles) and its size (times normal; all 1 for now). A room or two packed with them, a cluster in
+  // a corner of some others, and a ring of them along the walls of THE NEST. Packed rooms and the ring leave clear
+  // the lines across the room from each way in (so it can be crossed every way) and the tiles under the vents.
+  // Their own random numbers, so the rest of the sector doesn't change.
+  const eggs = [];
+  if (Math.max(Math.abs(sx - SECTORS.boss[0]), Math.abs(sy - SECTORS.boss[1])) <= EGGS.reach) {
+    const er = seededRandom(sx, sy, 4242);
+    const isBossSector = sx === SECTORS.boss[0] && sy === SECTORS.boss[1];
+    const jitter = () => (er() - 0.5) * 0.5;
+    const grid = levelGrid({ width: T, height: T, rooms, corridors, blocks });
+    const inRoom = (r, x, y) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+    const egg = (x, y) => eggs.push([x, y, jitter(), jitter(), 1]); // all the same size
+    // the room's floor tiles that can take an egg: not on a line across it from a way in, not under a vent
+    const eggTiles = (r) => {
+      const freeCols = new Set(), freeRows = new Set(), tiles = [];
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { // a way in: open floor just outside the room
+          if (grid[y + dy]?.[x + dx] === 0 && !inRoom(r, x + dx, y + dy)) (dx ? freeRows : freeCols).add(dx ? y : x);
+        }
+      }
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+        if (grid[y][x] !== 0 || freeCols.has(x) || freeRows.has(y) || vents.some(([vx, vy]) => vx === x && vy === y)) continue;
+        tiles.push([x, y]);
+      }
+      return tiles;
+    };
+    const order = roomSlots.filter((s) => !s.nest).map((s) => s.room);
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(er() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    const nPacked = isBossSector ? EGGS.packed[1] : EGGS.packed[0];
+    order.forEach((r, i) => {
+      const tiles = eggTiles(r);
+      if (i < nPacked) { tiles.forEach(([x, y]) => egg(x, y)); return; }
+      if (er() > (isBossSector ? EGGS.clusters[1] : EGGS.clusters[0])) return;
+      // a cluster: the tiles nearest one of the room's corners
+      const cx = er() < 0.5 ? r.x : r.x + r.w - 1, cy = er() < 0.5 ? r.y : r.y + r.h - 1;
+      const n = EGGS.cluster[0] + Math.floor(er() * (EGGS.cluster[1] - EGGS.cluster[0] + 1));
+      tiles.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy)).slice(0, n).forEach(([x, y]) => egg(x, y));
+    });
+    // THE NEST: a ring of eggs along its walls, all round the giant
+    const nest = roomSlots.find((s) => s.nest)?.room;
+    if (nest) {
+      const wallNear = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dy]) => grid[y + dy]?.[x + dx] !== 0);
+      eggTiles(nest).filter(([x, y]) => wallNear(x, y)).forEach(([x, y]) => egg(x, y));
+    }
+  }
 
   const level = {
     id: `sector-${name}`, name: `SECTOR ${name}`, sector: [sx, sy], density,
-    width: T, height: T, rooms, corridors, doors, blocks, fog, vents, lights, exits,
+    width: T, height: T, rooms, corridors, doors, blocks, fog, vents, lights, exits, eggs,
     entry: isEntry ? "ENTRY" : null,
     hostiles: hostileSchedule(sx, sy),
     // the boss sector: a towering ceiling over everything, and the giant in the middle of THE NEST

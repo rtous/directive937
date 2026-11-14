@@ -7,8 +7,9 @@
 //           The release rate doubles every VENTS.doubling seconds; new ones keep arriving at the edges.
 //   GIANT   one huge hostile in THE NEST (sectors.js): never moves. It turns toward the nearest soldier it can see
 //           and lashes out at them (GIANT.range), and it takes a lot of rounds to bring down.
-//   FLOOR   wander the colony at random; on seeing a soldier (or being shot) run at them; touching a
-//           soldier kills them. Lose sight -> search where they were last seen, then wander again.
+//   FLOOR   roam the colony: pick somewhere else (another room, down the corridors), walk there opening doors on
+//           the way (not sealed ones), stop and listen, pick again; on seeing a soldier (or being shot) run at
+//           them; touching a soldier kills them. Lose sight -> search where they were last seen, then roam again.
 
 const HOSTILE = {
   wander: 1.1,       // walking speed, world units per second
@@ -21,6 +22,8 @@ const HOSTILE = {
   reach: 0.7,        // tiles: closer than this to a soldier = the soldier is taken
   feed: 2.5,         // seconds it stays put after a kill
   thinkEvery: 0.15,
+  roam: [6, 30],     // tiles of walking to the next place it roams to [min, max]
+  listen: [1, 4],    // seconds it stops there, listening
 };
 
 // The release schedule. A level can override any of these (levels.js: hostiles).
@@ -54,7 +57,7 @@ const GIANT = {
 // a soldier (world.js takes the health off).
 function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, spawn, killSoldier, lash }) {
   // they open doors like the soldiers do (walking into one), but can't get through a sealed one (walkable)
-  const { walkable, doors, DIRS, bfs, pathFrom, idx, angleDiff, clearLine, cols, rows } = nav;
+  const { walkable, doors, DIRS, bfs, pathFrom, idx, angleDiff, clearLine, cols, rows, roomOf } = nav;
   const V = { ...VENTS, ...schedule };
   const living = () => soldiers.filter((s) => !s.dead);
 
@@ -212,7 +215,29 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, 
     }
   }
 
-  // Random walk: keep going, only turn back at dead ends, now and then stop to listen
+  // Somewhere to roam to: a tile HOSTILE.roam steps away by the shortest way, out of the room it's in (so it
+  // doesn't mill about one room: through its doors, down the corridors). Sets its path; false if there's nowhere.
+  function roam(a) {
+    const [fx, fy] = unitTile(a);
+    const here = roomOf(fx, fy);
+    const search = bfs(fx, fy, walkable);
+    const [lo, hi] = HOSTILE.roam;
+    const near = [], away = [];
+    for (let i = 0; i < search.dist.length; i++) {
+      const d = search.dist[i];
+      if (d < lo || d > hi) continue;
+      const x = i % cols, y = (i / cols) | 0;
+      (here && roomOf(x, y) === here ? near : away).push([x, y]);
+    }
+    const pool = away.length ? away : near;
+    if (!pool.length) return false;
+    const [x, y] = pool[Math.floor(Math.random() * pool.length)];
+    a.path = pathFrom(search, x, y);
+    a.pathKey = "roam";
+    return a.path.length > 0;
+  }
+
+  // Random walk, when there's nowhere to roam to: keep going, only turn back at dead ends, now and then stop
   function wanderStep(a) {
     const options = DIRS.map((d, i) => (walkable(a.tx + d[0], a.ty + d[1]) ? i : -1)).filter((i) => i >= 0);
     if (!options.length) return -1;
@@ -296,7 +321,14 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, 
     if (a.progress >= 1) {
       a.tx = a.nx; a.ty = a.ny;
       let d = -1;
-      if (a.mode === "chase" && a.path.length) {
+      // roaming: there (path done): stop and listen; then off to the next place
+      if (a.mode === "wander" && a.pause <= 0 && !a.path.length) {
+        if (a.pathKey === "roam") {
+          a.pathKey = null;
+          a.pause = HOSTILE.listen[0] + Math.random() * (HOSTILE.listen[1] - HOSTILE.listen[0]);
+        } else roam(a);
+      }
+      if ((a.mode === "chase" || (a.mode === "wander" && a.pause <= 0)) && a.path.length) {
         const [x, y] = a.path[0];
         d = DIRS.findIndex(([dx, dy]) => dx === x - a.tx && dy === y - a.ty);
         if (d < 0 || !walkable(x, y)) { d = -1; a.path = []; a.pathKey = null; } // off route, or sealed since
@@ -309,7 +341,7 @@ function createHostiles({ nav, TILE, ceiling, soldiers, fogAt, vents, schedule, 
       if (door) doors.ask(door);
       a.waitDir = door && !doors.canPass(door) ? d : null;
       if (a.waitDir != null) d = -1; // wait for it to open
-      else if (d >= 0 && a.mode === "chase") a.path.shift();
+      else if (d >= 0 && a.path.length) a.path.shift();
       if (d >= 0 && a.pause <= 0) {
         a.dir = d;
         a.nx = a.tx + DIRS[d][0];

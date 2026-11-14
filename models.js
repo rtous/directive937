@@ -272,3 +272,62 @@ function alienFigure({ model, scale, clips }, size = 1) {
   }
   return { group, mixer, actions };
 }
+
+// ---------- Alien eggs ----------
+// A static model: an egg on a root base, with web strands, standing on a patch of ground (cut out by an opacity
+// map). Its textures aren't linked inside the FBX (every material is "defaultMat"), so they're attached by mesh name.
+const EGG_DIR = "characters/alien-egg/";
+const EGG = {
+  model: EGG_DIR + "source/aliengeggFULL.fbx",
+  parts: { // mesh name -> which textures
+    Group13752: "shell", Group44234: "shell", Group64277: "shell", Group12847: "shell", // the four lips of the egg
+    Group59158: "web", Group57259: "web",
+    Group43410: "ground",
+  },
+  textures: { // [colour map, normal map, opacity map]; anything not listed above is "base" (roots and stalk)
+    shell: [EGG_DIR + "textures-web/alienegg_basecolor.jpg", EGG_DIR + "textures-web/alienegg_n.jpg"],
+    base: [EGG_DIR + "textures-web/baseegg_basecolor.jpg", EGG_DIR + "textures-web/baseegg_n.jpg"],
+    web: [EGG_DIR + "textures-web/baseegg_basecolor.jpg", null, EGG_DIR + "textures-web/webegg_opacity.jpg"],
+    ground: [EGG_DIR + "textures-web/piso_basecolor.jpg", EGG_DIR + "textures-web/piso_n.jpg", EGG_DIR + "textures-web/piso_opacity.jpg"],
+  },
+  ground: "Group43410", // the mesh that lies on the floor
+  hidden: ["Group44292"], // under the ground patch, never seen: not drawn
+  height: 1.25,   // metres, from the ground patch to the top of the egg
+  darkness: 0.42, // multiplies the texture colour (1 = as painted)
+};
+
+// The egg model, textured, scaled and standing on y = 0 (drawn instanced: eggPieces)
+const eggTemplate = once(async () => {
+  const model = await loadFBX(EGG.model);
+  const texLoader = new THREE.TextureLoader();
+  const tex = new Map(); // each file once
+  const load = (url) => (url ? tex.get(url) || tex.set(url, texLoader.load(url)).get(url) : null);
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    if (EGG.hidden.includes(o.name)) { o.visible = false; return; }
+    const [map, normalMap, alphaMap] = EGG.textures[EGG.parts[o.name] || "base"];
+    o.material = new THREE.MeshPhongMaterial({
+      map: load(map), normalMap: load(normalMap), alphaMap: load(alphaMap), alphaTest: alphaMap ? 0.5 : 0,
+      side: THREE.DoubleSide, specular: 0x555555, shininess: 40, // a moist, leathery shine
+    });
+  });
+  grayscale(model, (mat) => mat.color.setScalar(EGG.darkness));
+  const ground = model.getObjectByName(EGG.ground);
+  const groundY = ground ? new THREE.Box3().setFromObject(ground).min.y : new THREE.Box3().setFromObject(model).min.y;
+  const top = new THREE.Box3().setFromObject(model).max.y;
+  const scale = EGG.height / (top - groundY);
+  model.scale.setScalar(scale);
+  model.position.y = -groundY * scale + 0.01; // the ground patch just above the floor
+  const template = new THREE.Group();
+  template.add(model);
+  return template;
+});
+// The egg's parts, for instancing: { geometry, material, matrix } each, matrix placing it within the egg
+function eggPieces(template) {
+  template.updateMatrixWorld(true);
+  const parts = [];
+  template.traverse((o) => {
+    if (o.isMesh && o.visible) parts.push({ geometry: o.geometry, material: o.material, matrix: o.matrixWorld.clone() });
+  });
+  return parts;
+}

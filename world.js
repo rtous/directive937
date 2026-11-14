@@ -46,7 +46,7 @@ function ceilingTexture() {
 
 // ---------- World ----------
 // squad: [{ id, name, callsign }], one soldier per entry, each with its own helmet camera. level: from levels.js.
-// carry: who comes in from the level before, [{ alive, hp }] per soldier (null: everyone, at full health).
+// carry: who comes in from the level before, [{ alive, hp, pace }] per soldier (null: everyone, at full health, normal pace).
 function createWorld(width, height, squad, level, carry = null) {
   const grid = levelGrid(level);
   const rooms = level.rooms;
@@ -60,7 +60,11 @@ function createWorld(width, height, squad, level, carry = null) {
   const nav = createNav(grid, rooms, {
     home: rooms.find((r) => r.name === level.start), exits: exits.map((e) => e.room), doors,
     // the giant's body: nobody walks there
-    solid: level.giant ? [[level.giant.x - level.giant.space, level.giant.y - level.giant.space, level.giant.x + level.giant.space, level.giant.y + level.giant.space]] : [],
+    // and the alien eggs: they stand in the way too
+    solid: [
+      ...(level.giant ? [[level.giant.x - level.giant.space, level.giant.y - level.giant.space, level.giant.x + level.giant.space, level.giant.y + level.giant.space]] : []),
+      ...(level.eggs || []).filter(([x, y]) => !(level.starts || []).some(([sx, sy]) => sx === x && sy === y)).map(([x, y]) => [x, y, x, y]),
+    ],
   });
   const { cols, rows, isOpen, roomOf, idx, DIRS, DIR_NAMES, MOVES, headingFor, angleDiff, bfs } = nav;
   const fogZones = level.fog || [];
@@ -193,6 +197,24 @@ function createWorld(width, height, squad, level, carry = null) {
         scene.add(bar);
       }
     });
+  }
+
+  // ---------- Alien resin ----------
+  // Over parts of the walls, the ceiling and the floor (walls.js): more the closer the sector is to THE NEST, none
+  // far from it. The exit hatches, the doors, and the ceiling round the lights and vents stay clear.
+  const resinLevel = resinAmount(level);
+  if (resinLevel > 0) {
+    const hatches = new Set(exits.map((e) => `${e.door.x},${e.door.y}`));
+    const clearCeiling = new Set([...lights, ...vents].map(([x, y]) => y * 65536 + x));
+    rooms.forEach((r) => {
+      const [cx, cy] = nav.roomCentre(r);
+      for (const x of new Set([Math.floor(cx), Math.ceil(cx)])) for (const y of new Set([Math.floor(cy), Math.ceil(cy)])) clearCeiling.add(y * 65536 + x);
+    });
+    const resin = createResin({
+      cols, rows, isOpen, TILE, wallH: WALL_H, doors: level.doors || [],
+      skip: (x, y) => hatches.has(`${x},${y}`), bareCeiling: (x, y) => clearCeiling.has(y * 65536 + x), amount: resinLevel,
+    });
+    if (resin) scene.add(resin);
   }
 
   // ---------- Doors ----------
@@ -432,6 +454,43 @@ function createWorld(width, height, squad, level, carry = null) {
     aliens.push(giant);
   }
 
+  // Alien eggs (sectors.js): [x, y, dx, dy, size], each turned its own way. Drawn instanced, one mesh per part of
+  // the model (eggPieces, models.js) per room, each with bounds round that room's eggs: rooms out of view are left out.
+  if (modelsAvailable() && level.eggs?.length) {
+    eggTemplate().then((t) => {
+      if (disposed) return;
+      const onStart = ([x, y]) => (level.starts || []).some(([sx, sy]) => sx === x && sy === y);
+      const byRoom = new Map();
+      level.eggs.filter((e) => !onStart(e)).forEach((e) => { // never on top of a soldier
+        const r = roomAt(e[0], e[1]);
+        if (!byRoom.has(r)) byRoom.set(r, []);
+        byRoom.get(r).push(e);
+      });
+      const pieces = eggPieces(t);
+      const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), m = new THREE.Matrix4();
+      let n = 0;
+      byRoom.forEach((eggs) => {
+        const at = eggs.map(([x, y, dx = 0, dy = 0, size = 1]) => new THREE.Matrix4().compose(
+          new THREE.Vector3((x + dx) * TILE, (n++) * 0.0015, (y + dy) * TILE), // ground patches a hair apart, so they don't flicker
+          q.setFromAxisAngle(up, tileHash(x * 7 + n, y, 9) * Math.PI * 2), new THREE.Vector3(size, size, size)));
+        const centre = new THREE.Vector3();
+        at.forEach((p) => centre.add(new THREE.Vector3().setFromMatrixPosition(p)));
+        centre.divideScalar(at.length);
+        const radius = Math.max(...at.map((p) => new THREE.Vector3().setFromMatrixPosition(p).distanceTo(centre))) + 2;
+        for (const { geometry, material, matrix } of pieces) {
+          // the part's geometry shared (same buffers), with this room's bounds
+          const g = new THREE.BufferGeometry();
+          for (const [name, attr] of Object.entries(geometry.attributes)) g.setAttribute(name, attr);
+          g.setIndex(geometry.index);
+          g.boundingSphere = new THREE.Sphere(centre, radius);
+          const mesh = new THREE.InstancedMesh(g, material, eggs.length);
+          at.forEach((p, i) => mesh.setMatrixAt(i, m.multiplyMatrices(p, matrix)));
+          scene.add(mesh);
+        }
+      });
+    }).catch((err) => console.warn("Egg model not loaded:", err));
+  }
+
   if (modelsAvailable()) {
     alienTemplate().then((t) => {
       if (disposed) return;
@@ -478,10 +537,13 @@ function createWorld(width, height, squad, level, carry = null) {
     },
   });
 
-  // Who comes in from the level before: the others were lost there, and their health carries over
+  // Who comes in from the level before: the others were lost there, and their health and pace carry over
   if (carry) {
     soldiers.forEach((s, i) => {
-      if (carry[i]?.alive) s.hp = carry[i].hp;
+      if (carry[i]?.alive) {
+        s.hp = carry[i].hp;
+        if (carry[i].pace) { s.orders.pace = carry[i].pace; s.speed = BEHAVIOR.pace[carry[i].pace]; } // still SLOW / RUN
+      }
       else { brain.absent(s); scene.remove(s.body); }
     });
   }

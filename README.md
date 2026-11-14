@@ -39,7 +39,9 @@ steam or smoke. Sectors are linked by ACCESSES: a small room at the middle of a 
 shows the sector it leads to), matching an access at the same spot of the neighbour's edge. Not every pair of
 neighbours is linked (a maze over the grid, plus a few extra links); the outer edge of the complex has no
 accesses, only the ENTRY on the south edge of D8, where the squad first comes in. Sectors further from the entry
-get tenser: the hostiles come down sooner and multiply faster.
+get tenser: the hostiles come down sooner and multiply faster. The closer a sector is to THE NEST, the more of it is
+in steam or smoke (about a quarter of the floor in the far corner, two thirds next to the nest; never the nest
+itself) and the more of its walls, ceiling and floor are crusted with black alien resin (none far from the nest).
 
 A soldier who steps into an access room goes through its hatch and leaves the sector. The first one through picks
 the way for everyone: the other accesses close (crossed out on the tactical map), and the rest of the squad has to
@@ -48,10 +50,11 @@ nobody leaves by accident: only a deliberate order takes a soldier through: `got
 or `goto exit` for the one the squad is leaving through or else the nearest), a grid position inside one, or a
 direction (the console's direction pad included) that ends in one. A group following its leader goes through
 with them. The monitor shows how many are through (`OUT 1/4`). Once nobody is left inside, if at least one soldier went through, the next sector starts straight away: the squad
-arrives next to the matching access, with the health they had. If they all died, the game freezes and SQUAD LOST
-shows over the camera feed: RESTART SECTOR plays the sector again with the squad that came into it, NEW MISSION
-starts over at the entry with the whole squad. Soldiers lost in one sector stay lost (their camera shows NO
-SIGNAL). The goal: kill THE GIANT in THE NEST, sector H1. That wins the mission: the game freezes and MISSION COMPLETE shows over the camera feed, with NEW MISSION to start over from the entry.
+arrives next to the matching access, with the health they had and still at the pace they were (SLOW / RUN). If they all died, the game freezes and SQUAD LOST
+shows over the camera feed: REGROUP brings the whole squad back, all four at full health, in the sector where it
+came into the AREA it's in (the named groups of sectors on the full map: ENTRY CONCOURSE, ENGINEERING DECKS...),
+arriving through the same access; NEW MISSION starts over at the entry. Soldiers lost along the way stay lost
+(their camera shows NO SIGNAL) until the squad regroups. The goal: kill THE GIANT in THE NEST, sector H1. That wins the mission: the game freezes and MISSION COMPLETE shows over the camera feed, with NEW MISSION to start over from the entry.
 
 ⤢ FULL MAP, beside the tactical map, opens the whole complex full screen as a paper map (`papermap.js`): black,
 thin white lines, the sector grid and labels, the accesses and the entry; the only thing laid over it is the
@@ -121,10 +124,11 @@ Hostiles (`hostiles.js`) start in the ventilation ducts, a hidden floor above th
 or shot and crawl freely over the map. They come in at the edges of the map and drop through openings in the
 ceiling (dark squares in rooms and corridors, small squares on the tactical map). The colony starts silent: the first arrive in the ducts after ~20 s and the first comes down after ~35 s;
 the number released then doubles every 50 s, and new ones keep arriving in the ducts (up to 40 alive). Each
-soldier's status has a `motion_tracker` (signals within 12 tiles, ducts included). On the floor they wander
-at random. When one sees a soldier (or is shot) it charges, a little
+soldier's status has a `motion_tracker` (signals within 12 tiles, ducts included). On the floor they roam:
+each picks somewhere else (out of the room it's in, down the corridors), walks there opening doors on the way
+(not sealed ones), stops to listen, and picks again. When one sees a soldier (or is shot) it charges, a little
 slower than a soldier running on `pace fast`; if it touches a soldier, that soldier dies. Losing sight, it searches
-where the soldier was last seen, then wanders again. Some areas are full of steam or smoke (not shown on the
+where the soldier was last seen, then roams again. Some areas are full of steam or smoke (not shown on the
 tactical map): inside, everyone sees only ~3 tiles and the helmet camera closes in.
 
 The tactical map always shows the soldiers (one colour each). Hostiles only show up on sonar: each soldier carries

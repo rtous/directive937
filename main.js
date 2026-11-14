@@ -26,7 +26,9 @@ const formatHMS = (seconds) => {
 // ---------- State ----------
 let world = null;      // the current level's world (null if the 3D engine isn't available: static only)
 let atSector = { sector: SECTORS.entry, from: null }; // the sector the squad is in, and the access it came through (null: the entry)
-let entry = null;      // who came into this sector: [{ alive, hp }] (null: the whole squad, at the start)
+// where the squad came into the area it's in (sectors.js: MAP_AREAS): the sector and the access it came through
+// (null: the mission's entry). If the whole squad is lost, it comes back there, all of it.
+let areaEntry = { sector: SECTORS.entry, from: null };
 let levelStart = 0;    // performance.now() when it started
 let levelEnd = null;   // ...and when it ended (the mission clock stops)
 let selected = 0;      // whose helmet camera / vitals are on screen
@@ -674,15 +676,76 @@ function selectUnit(i, force = false) {
 
 // ---------- Sectors ----------
 // The squad moves across the sectors of the world map (sectors.js), one at a time. Whoever goes through an access
-// arrives in the neighbouring sector, at the matching access, with the health they had; the others are lost for
-// the rest of the mission. A restart plays the sector again with the squad that came into it.
+// arrives in the neighbouring sector, at the matching access, with the health they had; the others are lost. If
+// the whole squad is lost, it can start again, all four at full health, in the sector where it came into the
+// area (MAP_AREAS) it's in.
+
+// ---------- The comms log's own lines ----------
+// What the player reads: grunt talk, short, rude and sarcastic. The agent gets the plain facts (sendEvent).
+const pickOne = (lines) => lines[Math.floor(Math.random() * lines.length)];
+const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+const names = (list) => (list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list[0] || "");
+
+// Arriving in a sector. how: null (from the sector before), "start" (a new mission) or "regroup" (a fresh squad
+// after the last one was lost). newArea: the sector is in another area than the one before.
+function arrivalLine(level, from, newArea, how) {
+  const sector = level.name; // "SECTOR D8"
+  const where = level.start ? `the ${level.start}` : "some stinking corridor";
+  const area = areaOf(...level.sector)?.name || "this dump";
+  if (how === "regroup") {
+    return from
+      ? pickOne([
+        `Fresh meat, listen up. You're in ${sector}, ${where}, right where the last bunch walked into ${area}. Try not to end up like them.`,
+        `New squad, same shitty job. ${sector}, ${where}: the way into ${area}. The last guys are still in there somewhere. In pieces.`,
+        `Back at ${sector}, ${where}, boots on the ground. ${area} already ate one squad. Don't be dessert.`,
+      ])
+      : `Fresh meat, back at the entry to ${sector}. The last squad didn't make it. Keep your eyes peeled.`;
+  }
+  if (!from) return `OK guys, you're at the entry to ${sector}, on the edge of the complex. Keep your eyes peeled.`;
+  const U = from.toUpperCase();
+  const intro = pickOne([
+    `Alright, you're through the ${U} access into ${sector}. You're in ${where}.`,
+    `${sector}, ladies. In through the ${U} access, standing in ${where}.`,
+    `Welcome to ${sector}, through the ${U} access. ${capital(where)}. Lovely.`,
+  ]);
+  const outro = newArea
+    ? pickOne([
+      `This is ${area} now. New neighbourhood, same shit.`,
+      `You just walked into ${area}. Nobody's been in here for a long time. Nobody alive, anyway.`,
+      `${area}. Command swears it's quiet. Command also swore the last place was quiet.`,
+    ])
+    : pickOne([
+      "Same shit, different sector. Stay frosty.",
+      "Check your corners and don't bunch up.",
+      "Nobody gets cute. Eyes up, fingers off the trigger till you've got something to shoot.",
+      "Keep it tight and keep it quiet. Anything moves that isn't us, you light it up.",
+    ]);
+  return `${intro} ${outro}`;
+}
+
+// Through an access: who made it, who didn't
+function clearedLine(out, lost, to) {
+  if (!lost.length) {
+    return pickOne([
+      `Everybody's through to ${to}. Move, move, move!`,
+      `All present and accounted for. On to ${to}, people.`,
+      `Whole squad made it to ${to}. Don't let it go to your heads.`,
+    ]);
+  }
+  return `${names(out)} made it through to ${to}. ${names(lost)} didn't. ` +
+    pickOne([`Poor bastard${lost.length > 1 ? "s" : ""}. Keep moving.`, "No time to mourn. Move it.", "Tag 'em and leave 'em. Eyes front."]);
+}
 
 // Build the world for a sector and reset everything that belongs to it. from: the access (direction) the squad
-// comes in through, null at the entry. carry: who comes in, as above.
-function startSector([sx, sy], from = null, carry = null) {
+// comes in through, null at the entry. carry: who comes in, as above. how: "regroup" for a fresh squad after the
+// last one was lost (only changes what the comms log says).
+function startSector([sx, sy], from = null, carry = null, how = null) {
   if (world) world.dispose();
+  // a new area (or the mission's entry): this is where the squad comes back if it's all lost
+  const area = areaOf(sx, sy);
+  const newArea = area !== areaOf(...atSector.sector);
+  if (!from || newArea) areaEntry = { sector: [sx, sy], from };
   atSector = { sector: [sx, sy], from };
-  entry = carry;
   const level = sectorLevel(sx, sy, from);
   $("level-name").textContent = level.name;
   try {
@@ -731,7 +794,7 @@ function startSector([sx, sy], from = null, carry = null) {
   const objective = world.mission.status().objective;
   const lost = world.soldiers.filter((s) => s.dead).map((s) => s.callsign);
   const squad = `${world.mission.total} of ${SQUAD.length} in the squad${lost.length ? ` (lost earlier: ${lost.join(", ")})` : ""}.`;
-  addLog(`${level.name}. ${level.briefing} ${objective}`, "system");
+  addLog(arrivalLine(level, from, newArea, how), "system");
   sendEvent(`New sector: ${level.name}. ${level.briefing} ${squad} They are ${level.start ? `in the ${level.start}` : "in a corridor"}. ${objective} ` +
     "The map is new: see colony_map, doors and mission.accesses in the status.");
 }
@@ -750,8 +813,9 @@ function endSector({ win, victory, reason, exit }) {
     return;
   }
   if (win) {
-    const carry = world.soldiers.map((s) => ({ alive: !!s.exited, hp: s.hp }));
-    addLog(reason, "system");
+    const carry = world.soldiers.map((s) => ({ alive: !!s.exited, hp: s.hp, pace: s.orders.pace })); // pace: SLOW / RUN kept
+    const { out, lost } = world.mission.status();
+    addLog(clearedLine(out, lost, `sector ${exit.toName}`), "system");
     // after this frame's world update has finished with the old world
     setTimeout(() => startSector(exit.to, DIR[exit.dir].back, carry), 0);
     return;
@@ -759,11 +823,16 @@ function endSector({ win, victory, reason, exit }) {
   $("mission-end").className = "mission-end lost";
   $("restart-btn").hidden = false;
   $("mission-end-title").textContent = "SQUAD LOST";
-  $("mission-end-text").textContent = reason.toUpperCase();
-  $("new-btn").hidden = !entry; // lost beyond the entry sector: offer to start over
+  const back = sectorName(...areaEntry.sector), area = areaOf(...areaEntry.sector)?.name || "this dump";
+  $("mission-end-text").textContent = ("Nobody made it out. That's the whole squad in body bags. " + (areaEntry.from
+    ? `Fresh bodies go in at ${back}, where the last bunch walked into ${area}.`
+    : `Fresh bodies go in at the entry, ${back}.`)).toUpperCase();
+  $("restart-btn").textContent = `REGROUP AT ${back}`;
+  $("new-btn").hidden = !areaEntry.from; // already back at the mission's entry: the same thing
   $("mission-end").hidden = false;
 }
-$("restart-btn").addEventListener("click", () => startSector(atSector.sector, atSector.from, entry));
+// the whole squad again, at full health, in the sector where it came into this area
+$("restart-btn").addEventListener("click", () => startSector(areaEntry.sector, areaEntry.from, null, "regroup"));
 $("new-btn").addEventListener("click", () => startSector(SECTORS.entry));
 
 // The whole complex, as a paper map (papermap.js)

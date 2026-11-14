@@ -726,7 +726,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     // nudge each spot one tile in from the wall so the soldier sees the room, not the wall
     const inward = spots.map(([x, y]) => {
       const nx = x + Math.sign(Math.round(cx - x)), ny = y + Math.sign(Math.round(cy - y));
-      return isOpen(nx, ny) && roomOf(nx, ny) === room ? [nx, ny] : [x, y];
+      return nav.throughSeals(nx, ny) && roomOf(nx, ny) === room ? [nx, ny] : [x, y];
     });
     const order = [];
     let at = here(s);

@@ -55,7 +55,7 @@ function createMission({ exits, soldiers, nav, leave, emit, end }) {
     end({ win: out.length > 0, reason, exit: chosen, out: out.length, lost: lost.length });
   }
 
-  // What the squad (and the agent) knows
+  // What the squad knows
   function status() {
     return {
       objective: `The mission: find and kill THE GIANT, in THE NEST, sector ${sectorName(...SECTORS.boss)}. ` +

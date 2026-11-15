@@ -366,7 +366,7 @@ function generateSector(sx, sy) {
     }
     for (const s of slots) for (const n of neighbours(s)) {
       if (!s.there || !n.there || n.i + n.j < s.i + s.j) continue;
-      if (!joins.some(([a, b]) => (a === s && b === n) || (a === n && b === s)) && rnd() < 0.55) joins.push([s, n, false]);
+      if (!joins.some(([a, b]) => (a === s && b === n) || (a === n && b === s)) && rnd() < 0.9) joins.push([s, n, false]);
     }
   }
 

@@ -1,11 +1,10 @@
 "use strict";
 
-// Free-text orders without an AI agent: what CONTROL types in the comms box ("Frost, Hudson: go east",
-// "everyone regroup", "Vasquez seal D3", "run to the medlab", "hold fire") turned into game orders
-// (behavior.js: the same actions the agent sends). Plain keyword rules, no model: instant and tiny.
+// Typed orders: what CONTROL types in the comms box ("Frost, Hudson: go east", "everyone regroup",
+// "Vasquez seal D3", "run to the medlab", "hold fire") turned into game orders (behavior.js: world.order).
+// Plain keyword rules, no model: instant and tiny.
 //
-// Self-contained on purpose: a pure function with no game state; main.js uses it only when no agent is linked,
-// and only if this file is loaded. To remove it, delete this file and its <script> line in game.html.
+// Self-contained on purpose: a pure function with no game state; main.js uses it only if this file is loaded. To remove it, delete this file and its <script> line in game.html.
 //
 // TextOrders.parse(text, { units, rooms }) -> { unit, orders } | null
 //   units: [{ id, callsign }]   rooms: [{ name, label, aliases }] (the level's)
@@ -37,6 +36,7 @@ const TextOrders = (() => {
   // Tasks and squad shapes: the first that matches wins. [pattern, action, target]; target:
   // a string, a capture group number, or a function (match, room, door, follow) -> target (null: rule doesn't apply)
   const TASKS = [
+    [/\b(watch|check|cover|eyes on|look at|look up at)( the)? (ceiling|vents?|roof|openings?)\b|\blook up\b/, "ceiling", ""],
     [/\b(regroup|together|group up|on me|form up|fall in|rally)\b/, "together", ""],
     [/\bsplit( up)?\b/, "split", ""],
     [/\b(spread( out)?|fan out|scatter)\b/, "spread", ""],
@@ -112,7 +112,7 @@ const TextOrders = (() => {
   }
 
   const help = 'TRY: "FROST GO EAST", "ALL REGROUP", "VASQUEZ SEAL D3", "HUDSON CHECK THE MEDLAB", "RUN TO THE EXIT", ' +
-    '"HOLD FIRE", "LOOK NORTH", "DRAKE FOLLOW FROST", "STEP WEST", "ALERT", "HOLD", "CARRY ON".';
+    '"HOLD FIRE", "LOOK NORTH", "DRAKE FOLLOW FROST", "STEP WEST", "LOOK AROUND", "WATCH THE CEILING", "HOLD", "CARRY ON".';
 
   return { parse, help };
 })();

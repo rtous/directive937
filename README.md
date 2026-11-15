@@ -1,34 +1,14 @@
 # Aliens: USCMC
 
 A browser game: you sit in a spaceship control room and guide a squad through a 3D maze you can
-only see through their helmet cameras. The squad is commanded and voiced by an AI agent on your machine.
+only see through their helmet cameras. You give orders from the console
+or by typing them in the comms box.
 
 ## Play
 
 Run `./serve.sh` and the landing page opens at http://localhost:8000 (`./serve.sh 9000` for another port);
 PLAY goes to the game (`game.html`). Opening the pages directly doesn't work: the browser blocks the
 3D models on `file://` pages.
-
-## Connect an AI agent
-
-One local AI agent (e.g. Claude Code) commands and voices the whole squad, and may run other ship
-systems later. The player opens **⚙ AGENT SETUP** in the top bar, copies the prompt and pastes it into
-the agent. The prompt has the agent fetch `bridge.mjs` from the game server, start it and run a
-radio loop:
-
-```
-game (browser) --HTTP/SSE--> bridge.mjs on 127.0.0.1:8937 <--CLI-- agent
-```
-
-Agent commands: `node ~/.directive937/bridge.mjs start|wait|order|radio|status|stop` (see the top of
-`bridge.mjs`; the orders are listed below). Every `wait` result includes each unit's task, standing orders,
-what it is doing, hostiles in view and surroundings (room description, exits and where they lead, line
-of sight, nearby squad), the squad's known hostiles and the colony map. Events wake the agent: contacts,
-kills, instincts taking over, arrivals. The bridge only accepts the game's own origin and protects the
-agent commands with a token stored in `~/.directive937/`. Starting the bridge replaces an older running version.
-
-Optional MCP version (same protocol, tools instead of commands):
-`cd bridge && npm install && claude mcp add directive937 -e DIRECTIVE937_ORIGINS=https://your-game-server -- node /full/path/bridge/index.js`
 
 ## The complex: sectors and accesses
 
@@ -65,7 +45,7 @@ sector the squad is in now: no soldiers, hostiles or door states. Esc or ✕ CLO
 ## Doors
 
 Sliding doors sit in some corridors and room doorways (`doors.js`, placed in `levels.js`; some start sealed: D5, D6 and D8 in the colony), numbered D1, D2... on
-the doors themselves, on the tactical map and in the agent's status. Soldiers and hostiles alike open one by
+the doors themselves and on the tactical map. Soldiers and hostiles alike open one by
 walking into it (they wait a moment while it slides open); it closes again a few seconds after nobody is in the
 doorway. Nobody sees or shoots through a closed door.
 
@@ -77,16 +57,16 @@ D3 … order unseal to cut through"); once it's cut open they carry on by themse
 under the same sparks) and the door works normally again, for everyone. The weld is gradual both ways: a half-cut
 door is still sealed and can be welded back up from where it was.
 It's one soldier's job: from the console, the one on camera if they're among the ticked, else the first group
-leader, else the first of them; from the agent, a group leader among those named. The console button works on the
+leader, else the first of them; typed, a group leader among those named. The console button works on the
 door nearest that soldier, `SEAL/UNSEAL DOOR`: it welds that door, or cuts it open if it's sealed (the tooltip says which door and what it will do). The
-soldier walks to the door (the agent can name one: `D3`, a room, or `x y`), closes it, and works standing in front
+soldier walks to the door (a typed order can name one: `D3` or a room), closes it, and works standing in front
 of it: sparks pour off a glowing seam that climbs the door (shrinks, when cutting), under a flickering arc. Having
 to fight pauses the work; it carries on from where it was. The camera button shows `WELD nn%` or `CUT nn%`.
 
 ## Level format
 
 A sector is a "level": plain data in the format described at the top of `levels.js` (grid size, rooms with name,
-map label, aliases, interior, light colour, description for the agent and wall style; corridors, solid blocks,
+map label, aliases, interior, light colour, description and wall style; corridors, solid blocks,
 doors, fog, vents, red lights, start room and tiles, exits with their hatch tiles, a briefing, optional overrides
 of the hostiles' release schedule). `generateSector` in `sectors.js` produces them; `sectorLevel` adds where the
 squad starts, depending on the access it came in through. `HANDMADE_LEVELS` in `levels.js` are the two hand-made
@@ -105,12 +85,13 @@ Soldiers decide for themselves about 10 times a second (`behavior.js`), in three
 | Layer | What it is | Behaviors |
 |---|---|---|
 | **Instinct** | Reflexes that override any order | *Point-blank*: shoot any hostile within ~2 tiles, even under `fire hold`. *Panic*: when overwhelmed (several hostiles close; squad mates nearby make it bearable), run fast away from them, then hold. |
-| **Orders** | The player's intent, through the agent | A **task** (one at a time), **standing orders** (kept until changed) and the **squad shape** (see below). |
+| **Orders** | The player's intent, from the console or typed | A **task** (one at a time), **standing orders** (kept until changed) and the **squad shape** (see below). |
 | **Default** | What they do untold | Stay together behind the lowest-numbered unit, patrol room by room, watch different angles, engage hostiles they see, pursue them. |
 
-Orders (`order <who> <order> [argument]`, who = `1-4`, a name, `alpha`/`bravo`, `all` or `1,3`):
+Game orders (`world.order(who, order, argument)`, who = `1-4`, a name, `alpha`/`bravo`, `all` or `1,3`; the console
+buttons and typed orders both come down to these):
 
-- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `alert` (stop and look all around for 5 s, then carry on; followers stay in their group) · `inspect [room]` (walk to a few spots across the room, by default the one they're in or the nearest, look around at each, report and hold) · `retreat [room]` · `getout` (each runs to the nearest corridor, on their own, and holds) · `follow <unit>` · `seal [door]` (weld a door shut: `D3`, a room, `x y` or the nearest; one soldier, 16 s) · `unseal [door]` (cut it open again; also `unweld`, `cut`; 12 s) · `continue`
+- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `alert` (stop and look all around for 5 s, then carry on; followers stay in their group) · `ceiling` (back off from the nearest ceiling vent within 10 tiles to a spot 3-5 tiles off that still sees it, watch it for 5 s, then carry on) · `inspect [room]` (walk to a few spots across the room, by default the one they're in or the nearest, look around at each, report and hold) · `retreat [room]` · `getout` (each runs to the nearest corridor, on their own, and holds) · `follow <unit>` · `seal [door]` (weld a door shut: `D3`, a room, `x y` or the nearest; one soldier, 16 s) · `unseal [door]` (cut it open again; also `unweld`, `cut`; 12 s) · `continue`
 - **Squad shape**: `together` (regroup behind the lowest-numbered unit) · `split` (ALPHA = 1+2, BRAVO = 3+4) · `spread` (fan out across the room and act independently)
 - **Standing orders**: `pace slow|normal|fast` · `fire free|hold` · `contact engage|hold|retreat` (what to do on seeing a hostile) · `pursue on|off` · `watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>` · `reset`
 
@@ -125,8 +106,8 @@ follows each soldier's stress.
 Hostiles (`hostiles.js`) start in the ventilation ducts, a hidden floor above the colony where they can't be seen
 or shot and crawl freely over the map. They come in at the edges of the map and drop through openings in the
 ceiling (dark squares in rooms and corridors, small squares on the tactical map). The colony starts silent: the first arrive in the ducts after ~20 s and the first comes down after ~35 s;
-the number released then doubles every 50 s, and new ones keep arriving in the ducts (up to 40 alive). Each
-soldier's status has a `motion_tracker` (signals within 12 tiles, ducts included). On the floor they roam:
+the number released then doubles every 50 s, and new ones keep arriving in the ducts (up to 40 alive). Soldiers
+call in motion-tracker movement within 12 tiles, ducts included. On the floor they roam:
 each picks somewhere else (out of the room it's in, down the corridors), walks there opening doors on the way
 (not sealed ones), stops to listen, and picks again. When one sees a soldier (or is shot) it charges, a little
 slower than a soldier running on `pace fast`; if it touches a soldier, that soldier dies. Losing sight, it searches
@@ -142,11 +123,10 @@ as sparks on a wall or a splash on a hostile (`effects.js`). A killed hostile di
 health is KIA: their camera goes to static, their vitals flatline, and anyone following them falls in behind
 the next leader. `world.hurt(unit, amount)` in the browser console takes health off a soldier, for testing.
 
-Soldiers call in hostiles as events for the agent to voice: contacts (with what each hostile is doing), a hostile
+Soldiers call in hostiles on the radio: contacts (with what each hostile is doing), a hostile
 charging them, one dropping from a ceiling vent, motion-tracker movement close by with nothing in sight (limited
-to one call every few seconds for the squad), losing sight of one, kills. With no agent linked, the soldiers call in those events
-themselves as short radio messages (e.g. `FROST: CONTACT! ...`, `MOTHER: UNIT 3 (HUDSON) IS DOWN. NO LIFE SIGNS.`);
-with an agent linked, the agent voices them instead. Every radio message, CONTROL's own included, plays a short
+to one call every few seconds for the squad), losing sight of one, kills, as short radio messages (e.g. `FROST: CONTACT! ...`,
+`MOTHER: UNIT 3 (HUDSON) IS DOWN. NO LIFE SIGNS.`). Every radio message, CONTROL's own included, plays a short
 transmission: a squelch click, half a second of choppy, unintelligible static (MOTHER: data chirps), a click. Calls
 about hostiles (the soldier just had a contact, charge, vent or tracker event, or the message sounds like an alarm)
 come through shouted: louder, overdriven and harsher.
@@ -155,24 +135,22 @@ Suspense music is generated live (`audio.js`, no files): a low dissonant drone, 
 pings, and a heartbeat pulse once things get tense. It follows the game's tension (soldier stress, how close the
 nearest hostile is, ducts included, hostiles in view) and plays and mutes with the AUDIO button.
 
-The player talks to the whole squad and names a soldier in the message to address one ("Drake, hold there").
-
-The console works without the agent too. The four big buttons left of the monitor pick whose helmet camera is
+The four big buttons left of the monitor pick whose helmet camera is
 on screen and show each soldier's health, HOLD / SLOW / RUN and who they follow. Under the tactical map, a chip per
 soldier ticks them for orders (the box in the SQUAD title ticks or unticks them all); the order buttons then apply
 to every ticked soldier (with none ticked, to the one on camera): SLOW / RUN (one at a time, lit while all of them
-are in that mode, whoever gave the order; pressing the lit one goes back to normal pace), ALERT, SEAL/UNSEAL DOOR,
-a FOLLOW selector, a look pad over the top-right corner of the camera (where they look), and the move pad on the
+are in that mode, whoever gave the order; pressing the lit one goes back to normal pace), LOOK AROUND, WATCH CEILING, SEAL/UNSEAL DOOR (bottom-left corner of the tactical map),
+a FOLLOW selector, a look pad over the top-left corner of the camera (where they look), and the move pad on the
 tactical map: as far as possible north, south, east or west, or one leg that way; its centre is HOLD (pressed
-again, they carry on, rejoining their group if they were following someone). OUT OF THERE, INSPECT, RETREAT, TOGETHER and SPREAD have no button but the agent can still order them. Each order shows in
-the comms log as a CONTROL message (e.g. `CONTROL: FROST, HUDSON: HEAD NORTH`)
-and is reported to the agent.
+again, they carry on, rejoining their group if they were following someone). OUT OF THERE, INSPECT, RETREAT, TOGETHER and SPREAD have no button but can be typed. Each order shows in
+the comms log as a CONTROL message (e.g. `CONTROL: FROST, HUDSON: HEAD NORTH`).
 
-With no agent linked, typed orders in the comms box still work (`textorders.js`): plain keyword rules turn the
+Typed orders in the comms box (`textorders.js`): plain keyword rules turn the
 text into the same game orders ("Frost, go east", "everyone regroup", "Vasquez seal D3", "Hudson check the
 medlab", "run to the exit", "hold fire", "look north-east", "Drake follow Frost", "step west", "carry on"). With
 nobody named, the order goes to the ticked soldiers, or the one on camera; each soldier told answers on the radio.
-To drop it, delete `textorders.js` and its `<script>` line in `game.html`.
+Name a soldier in the message to address one ("Drake, hold there"). To drop typed orders, delete
+`textorders.js` and its `<script>` line in `game.html`.
 
 ## Files
 
@@ -192,11 +170,10 @@ Scripts load in this order (plain `<script>` tags, no build step):
 - `audio.js`: static, radio bursts, gunfire and suspense music (Web Audio, no sound files)
 - `tacmap.js`: the tactical map with the sonar
 - `papermap.js`: the whole complex as a full-screen paper map
-- `main.js`: the control room: CRT feed, biomonitor, comms, squad console, agent link, levels, main loop
-- `index.html`: the landing page (title, what the optional AI agent does, how to link one)
+- `main.js`: the control room: CRT feed, biomonitor, comms, squad console, levels, main loop
+- `index.html`: the landing page (title, how to give orders)
+- `textorders.js`: typed orders: keyword rules turning comms text into game orders (optional)
+- `voice.js`: voice orders into the comms box (optional, Chrome speech recognition)
 - `game.html`, `style.css`: the control room layout
-- `agent.html`: agent setup page; builds the prompt for wherever the game is hosted
-- `bridge.mjs`: local bridge between the game and the agent (single file, no dependencies)
-- `bridge/`: optional MCP wrapper around `bridge.mjs`
 - `serve.sh`: local web server for testing (no caching)
 - `tools/check-levels.js`: checks every sector's layout (`node tools/check-levels.js`)

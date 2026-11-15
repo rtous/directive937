@@ -6,12 +6,12 @@
 // Coordinates are grid tiles: x grows east, y grows south (north is up on the tactical map).
 // Rectangles are [x1, y1, x2, y2], inclusive.
 //
-//   id, name        a short id, and the name shown to the player and the agent
-//   briefing        one or two sentences on where the squad is now (comms log and the agent)
+//   id, name        a short id, and the name shown to the player
+//   briefing        one or two sentences on where the squad is now (comms log)
 //   width, height   grid size; everything outside the rooms and corridors is solid wall
-//   rooms           named areas. label: short name on the map. aliases: other words the agent may use.
+//   rooms           named areas. label: short name on the map. aliases: other words the player may type for it.
 //                   x, y, w, h: the interior. light: ceiling light colour (the feed is grayscale; only red shows).
-//                   desc: what it looks like (sent to the agent). walls: wall style (walls.js), default corridor-like.
+//                   desc: what it looks like (flavour text). walls: wall style (walls.js), default corridor-like.
 //   corridors       open runs joining the rooms
 //   blocks          solid blocks inside rooms (consoles, machinery, crates)
 //   doors           sliding doors (doors.js): single tiles of 1-wide passages, numbered D1, D2... in this order;

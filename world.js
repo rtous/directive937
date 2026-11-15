@@ -68,7 +68,7 @@ function createWorld(width, height, squad, level, carry = null) {
       ...(level.eggs || []).filter(([x, y]) => !(level.starts || []).some(([sx, sy]) => sx === x && sy === y)).map(([x, y]) => [x, y, x, y]),
     ],
   });
-  const { cols, rows, isOpen, roomOf, idx, DIRS, DIR_NAMES, MOVES, headingFor, angleDiff, bfs } = nav;
+  const { cols, rows, isOpen, roomOf, MOVES, headingFor, angleDiff } = nav;
   const fogZones = level.fog || [];
   const WALL_H = level.wallHeight || DEFAULT_WALL_H;
 
@@ -575,7 +575,7 @@ function createWorld(width, height, squad, level, carry = null) {
   // ---------- Minds ----------
   // The soldiers' (behavior.js)
   const brain = createSquadBrain({
-    nav, fogAt, soldiers, aliens, killAlien, killSoldier,
+    nav, fogAt, soldiers, aliens, vents, killAlien, killSoldier,
     emit: (s, text) => onEvent(s, text),
   });
 
@@ -680,83 +680,6 @@ function createWorld(width, height, squad, level, carry = null) {
     s.fireTime = 0;
     s.shots = burstPattern(duration);
     onFire(s, s.shots.slice());
-  }
-
-  // ---------- What each soldier can perceive (for the agent) ----------
-  function surroundings(s) {
-    const [x, y] = unitTile(s);
-    const room = roomOf(x, y);
-
-    // how far the soldier can see straight down each direction, and which rooms that view opens into
-    const lineOfSight = {};
-    DIRS.forEach(([dx, dy], d) => {
-      let n = 0;
-      const seen = [];
-      while (nav.seeThrough(x + dx * (n + 1), y + dy * (n + 1)) && n < 30) {
-        n++;
-        const r = roomOf(x + dx * n, y + dy * n);
-        if (r && r !== room && !seen.includes(r.name)) seen.push(r.name);
-      }
-      const door = doors.at(x + dx * (n + 1), y + dy * (n + 1)); // what stopped the view, if it's a door
-      lineOfSight[DIR_NAMES[d]] = (n === 0 ? (door ? "" : "wall") : `${n} tile${n === 1 ? "" : "s"} clear`) +
-        (seen.length ? `, opens into ${seen.join(", ")}` : "") +
-        (door ? `${n ? ", then " : ""}${door.sealed ? "sealed" : "closed"} door ${door.id}` : "");
-    });
-
-    const search = bfs(x, y);
-    const nearby = soldiers
-      .filter((o) => o !== s && !o.dead)
-      .map((o) => ({ o, d: search.dist[idx(...unitTile(o))] }))
-      .filter(({ o, d }) => d >= 0 && (d <= 8 || (room && roomOf(...unitTile(o)) === room)))
-      .map(({ o, d }) => `${o.callsign} (unit ${o.id}), ${d} tiles away`);
-
-    const fog = fogZoneAt(x, y);
-    return {
-      description: (room ? room.desc : "Narrow service corridor. Dark, pipes along the ceiling, condensation dripping.") +
-        (fog ? ` ${fog.what} Visibility a few tiles.` : ""),
-      exits: room
-        ? nav.roomExits.get(room.name).map((e) => `${e.direction} door -> ${e.leads_to.join(" / ") || "dead end"}`)
-        : [`this corridor connects to: ${nav.corridorLeadsTo(x, y, null).join(", ")}`],
-      line_of_sight: lineOfSight,
-      nearby_squad: nearby.length ? nearby : ["nobody within 8 tiles"],
-    };
-  }
-
-  const compass4 = (angle) => DIR_NAMES[[0, 1, 2, 3].reduce((best, i) =>
-    Math.abs(angleDiff(angle, headingFor(DIRS[i]))) < Math.abs(angleDiff(angle, headingFor(DIRS[best]))) ? i : best, 0)];
-
-  function unitStatus(s) {
-    const [x, y] = unitTile(s);
-    // grid coordinates (same as the tactical map); x grows east, y grows south
-    const base = { unit: s.id, name: s.name, location: roomOf(x, y)?.name ?? "CORRIDOR", position: { x, y } };
-    if (s.dead) return { ...base, ...brain.describe(s) };
-    return {
-      ...base,
-      facing: compass4(s.heading),
-      looking: compass4(s.heading + s.lookOffset),
-      ...brain.describe(s),
-      moving: s.moving,
-      firing: s.fireLeft > 0,
-      open_directions: nav.openDirsFrom(x, y).map((i) => DIR_NAMES[i]),
-      surroundings: surroundings(s),
-    };
-  }
-
-  const colonyMap = rooms.map((r) => ({
-    name: r.name, x: r.x, y: r.y, w: r.w, h: r.h,
-    exits: nav.roomExits.get(r.name).map((e) => `${e.direction} -> ${e.leads_to.join(" / ") || "dead end"}`),
-  }));
-
-  function status() {
-    return {
-      level: level.name,
-      grid_size: { width: cols, height: rows },
-      units: soldiers.map(unitStatus),
-      squad: brain.squadStatus(),
-      mission: mission.status(),
-      colony_map: colonyMap,
-      doors: doors.list.map((d) => ({ id: d.id, position: { x: d.x, y: d.y }, where: d.where, state: doors.state(d) })),
-    };
   }
 
   // ---------- Moving the soldiers ----------
@@ -897,7 +820,7 @@ function createWorld(width, height, squad, level, carry = null) {
   update(0);
   return {
     level, canvas: renderer.domElement, grid, rooms, soldiers, aliens, vents, doors, exits, mission,
-    update, render, status, dispose,
+    update, render, dispose,
     order: brain.order, findUnits: brain.findUnits,
     nearestDoor: (i) => brain.nearestDoor(soldiers[i]), // by route, whatever its state
     // take health off units (for testing, from the browser console): world.hurt("2", 40)

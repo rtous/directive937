@@ -22,7 +22,6 @@ function createNav(grid, rooms, { home = null, exits = [], doors = null, solid =
 
   const idx = (x, y) => y * cols + x;
   const isOpen = (x, y) => y >= 0 && y < rows && x >= 0 && x < cols && grid[y][x] === 0;
-  const openDirsFrom = (x, y) => DIRS.map((d, i) => (isOpen(x + d[0], y + d[1]) ? i : -1)).filter((i) => i >= 0);
   // which room each tile is in (index + 1; 0 = none), worked out once
   const roomGrid = new Int16Array(rows * cols);
   rooms.forEach((r, k) => {
@@ -135,39 +134,6 @@ function createNav(grid, rooms, { home = null, exits = [], doors = null, solid =
     return path;
   }
 
-  // Rooms reachable from a corridor tile without passing through another room
-  function corridorLeadsTo(x, y, exclude) {
-    const seen = bfs(x, y, (cx, cy) => isOpen(cx, cy) && !roomOf(cx, cy));
-    const found = new Set();
-    for (let i = 0; i < seen.dist.length; i++) {
-      if (seen.dist[i] < 0) continue;
-      const cx = i % cols, cy = (i / cols) | 0;
-      for (const [dx, dy] of DIRS) {
-        const r = roomOf(cx + dx, cy + dy);
-        if (r && r !== exclude && isOpen(cx + dx, cy + dy)) found.add(r.name);
-      }
-    }
-    return [...found];
-  }
-
-  // Exits of every room (doorway tiles just outside it) and where they lead
-  const roomExits = new Map(rooms.map((r) => {
-    const exits = [];
-    for (let y = r.y - 1; y <= r.y + r.h; y++) {
-      for (let x = r.x - 1; x <= r.x + r.w; x++) {
-        const inside = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
-        if (inside || !isOpen(x, y) || roomOf(x, y)) continue;
-        const direction = y < r.y ? "north" : y >= r.y + r.h ? "south" : x < r.x ? "west" : "east";
-        const leads_to = corridorLeadsTo(x, y, r);
-        // a wide doorway is several tiles: list it once
-        if (!exits.some((e) => e.direction === direction && e.leads_to.join() === leads_to.join())) {
-          exits.push({ direction, door: { x, y }, leads_to });
-        }
-      }
-    }
-    return [r.name, exits];
-  }));
-
   // A room by name, label or alias (exact first, then partial)
   function findRoom(query) {
     const q = String(query || "").trim().toLowerCase();
@@ -181,7 +147,7 @@ function createNav(grid, rooms, { home = null, exits = [], doors = null, solid =
     cols, rows, DIRS, DIR_NAMES, MOVES, rooms, home, exits, doors,
     get chosenExit() { return chosenExit; },
     chooseExit(r) { chosenExit = r; },
-    idx, isOpen, isExit, inExit, closedExit, walkable, throughSeals, seeThrough, openDirsFrom, roomOf, where, roomCentre, headingFor, angleDiff, clearLine,
-    bfs, routeSearch, pathFrom, corridorLeadsTo, roomExits, findRoom,
+    idx, isOpen, isExit, inExit, closedExit, walkable, throughSeals, seeThrough, roomOf, where, roomCentre, headingFor, angleDiff, clearLine,
+    bfs, routeSearch, pathFrom, findRoom,
   };
 }

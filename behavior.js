@@ -6,9 +6,9 @@
 //   INSTINCT   reflexes that override any order
 //                panic        overwhelmed (several hostiles close, worse alone) -> run fast, then hold
 //                point-blank  a hostile within ~2 tiles -> shoot it, even under "fire hold"
-//   ORDERS     the player's intent, given through the AI agent
+//   ORDERS     the player's intent, from the console buttons or typed in the comms box
 //                task         what to do now: patrol, patrol <room>, goto, north/south/east/west, hold,
-//                             alert, inspect [room], retreat, getout, follow, seal [door], unseal [door], continue
+//                             alert, ceiling, inspect [room], retreat, getout, follow, seal [door], unseal [door], continue
 //                             (one at a time;
 //                             a new task replaces the old)
 //                standing     how to do it, kept until changed: pace, fire, contact, pursue, watch
@@ -34,12 +34,12 @@ const BEHAVIOR = {
   panic: 5,          // danger score that makes a soldier run...
   safe: 2,           // ...and the score that counts as safe again
   hp: { soldier: 100, alien: 100 }, // health everyone starts with
-  energy: { drain: 4, rest: 0.8, walk: 0.4, recover: 30 }, // stamina (0-100): spent per second running, regained (slowly)
+  energy: { drain: 4, rest: 1.0, walk: 0.5, recover: 30 }, // stamina (0-100): spent per second running, regained (slowly)
                      // per second standing / walking; at 0 a soldier can't run until it's back to `recover`.
                      // It carries over from one sector to the next (world.js: carry)
   damage: 10,        // health one rifle round takes off
   thinkEvery: 0.1,   // seconds between decisions
-  report: {          // radio reports about hostiles (events for the agent)
+  report: {          // radio reports about hostiles (events, called in on the radio)
     recontact: 15,   // seconds before a hostile seen again counts as a new contact
     charge: 8,       // seconds between "charging at me" calls for the same hostile
     trackerNear: 6,  // tiles: tracker movement this close, with nothing in sight, is called in
@@ -51,6 +51,8 @@ const BEHAVIOR = {
   },
   tracker: 12,       // motion tracker range in tiles (same as the map sonar) (it can't tell the ducts from the floor)
   alert: 5,          // seconds an "alert" lasts: stop and look all around, then carry on
+  ceiling: { look: 5, reach: 10, away: [3, 5], walk: 8 }, // "ceiling": the nearest opening within reach (tiles);
+                     // step back to a spot this far from it (still in view, at most `walk` tiles off), watch it for `look` s
   sweepStep: 1.25,   // seconds facing each of the four directions while looking all around
   inspect: { spots: [2, 5], tilesPerSpot: 14, look: 2.5, step: 0.65 }, // checking a room: spots, how long at each
 };
@@ -91,6 +93,7 @@ const SHORTCUTS = {
   stop: ["hold"], stay: ["hold"], halt: ["hold"], wait: ["hold"],
   resume: ["continue"],
   scan: ["alert"], lookout: ["alert"], "look-around": ["alert"],
+  "watch-ceiling": ["ceiling"], vents: ["ceiling"], vent: ["ceiling"], roof: ["ceiling"],
   check: ["inspect"], clear: ["inspect"], sweep: ["inspect"],
   flee: ["retreat"], fallback: ["retreat"], withdraw: ["retreat"],
   regroup: ["together"], group: ["together"],
@@ -104,7 +107,7 @@ const SHORTCUTS = {
 };
 
 const ORDER_HELP = "Tasks: patrol [room], goto <room | x y>, north/south/east/west (as far as possible), " +
-  "step north/south/east/west (to the next room, junction, dead end or sealed door), hold, alert, inspect [room], retreat [room], " +
+  "step north/south/east/west (to the next room, junction, dead end or sealed door), hold, alert, ceiling, inspect [room], retreat [room], " +
   "follow <unit>, getout, seal [door: D1.. | room | x y | nearest], unseal [door], continue. Squad: together, split, spread. Standing: pace slow|normal|fast, fire free|hold, " +
   "contact engage|hold|retreat, pursue on|off, watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>, reset.";
 
@@ -112,7 +115,7 @@ const COMPASS = ["north", "north-east", "east", "south-east", "south", "south-we
 
 // nav: grid helpers (nav.js). fogAt(x, y): is that tile in fog. killAlien(alien) / killSoldier(soldier) take them
 // out of the scene. emit(soldier, text) reports an event.
-function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, killSoldier, emit }) {
+function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, vents = [], killAlien, killSoldier, emit }) {
   // only those still in play take part; `everyone` keeps the fallen and those who left for the status report
   let soldiers = everyone.slice();
   const { isOpen, walkable, seeThrough, inExit, isExit, doors, cols, DIRS, DIR_NAMES, pathFrom, idx, roomOf, rooms, findRoom,
@@ -130,7 +133,6 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
   let now = 0;                 // seconds since the level started
   const known = new Map();     // alien -> { x, y, seen, by }: hostiles the squad has spotted
   const visited = new Map();   // room name -> time someone last entered it (patrol prefers stale rooms)
-  let kills = 0;
   let squadTrackerAt = -99;    // last motion-tracker call from anyone
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -501,7 +503,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
 
   // ---------- Tasks ----------
   function setTask(s, task) {
-    if (s.task && !["hold", "follow", "alert"].includes(s.task.kind)) s.prevTask = s.task;
+    if (s.task && !["hold", "follow", "alert", "ceiling"].includes(s.task.kind)) s.prevTask = s.task;
     s.task = task;
     s.goalKey = null;
     s.lastTarget = null;
@@ -521,6 +523,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       case "heading": return `head ${t.dir}`;
       case "hold": return "hold position";
       case "alert": return `alert: stopped, looking all around (${Math.max(0, Math.ceil(t.until - now))} s left)`;
+      case "ceiling": return t.until == null ? "backing off from a ceiling vent" : `watching a ceiling vent (${Math.max(0, Math.ceil(t.until - now))} s left)`;
       case "inspect": return `inspect ${t.room.name} (${t.done}/${t.spots.length} spots checked)`;
       case "follow": return `follow ${s.leader ? s.leader.callsign : "nobody"}`;
       case "retreat": return t.room ? `retreat to ${t.room.name}` : "retreat from danger";
@@ -570,6 +573,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       case "patrol": return patrol(s, dt, null);
       case "patrol_area": return patrol(s, dt, t.room);
       case "alert": return alert(s);
+      case "ceiling": return watchCeiling(s);
       case "inspect": return inspect(s);
       case "seal": return seal(s, dt);
       case "retreat":
@@ -628,6 +632,54 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     }
     s.doing = "on alert, looking all around";
     sweepGaze(s, t.since, BEHAVIOR.sweepStep);
+  }
+
+  // Watch the ceiling: back off from the nearest vent to a spot a few tiles away that still sees it, face it for a
+  // few seconds, then go back to what it was doing (like alert). No route to the spot: watch it from where they are.
+  function watchCeiling(s) {
+    const t = s.task;
+    if (t.until == null) {
+      if (t.spot && !atTile(s, t.spot) && walkTo(s, ...t.spot, `ceiling:${t.spot}`)) {
+        s.doing = "backing off from a ceiling vent";
+        return;
+      }
+      t.until = now + BEHAVIOR.ceiling.look;
+    }
+    stopHere(s, "ceiling");
+    s.halt = true;
+    if (now >= t.until) {
+      const back = t.resume;
+      s.task = back.kind === "follow" && !s.leader ? { kind: "hold" } : back;
+      s.goalKey = null;
+      if (!s.leader) emit(s, `${label(s)} ceiling vent watched, ${s.visible.length ? "hostiles in sight" : "nothing came down"}. Back to: ${taskText(s)}.`);
+      return doTask(s, 0);
+    }
+    s.gaze = angleTo(s, t.vent[0], t.vent[1]);
+    s.doing = "watching a ceiling vent";
+  }
+
+  // The nearest vent within reach, and where to watch it from: a free tile `away` tiles off it, in clear view,
+  // a short walk away (scored: about the middle of `away`, little walking). null: no vent close enough.
+  function ceilingSpot(s, taken) {
+    const C = BEHAVIOR.ceiling;
+    const [fx, fy] = here(s);
+    const near = vents.map((v) => ({ v, d: Math.hypot(v[0] - fx, v[1] - fy) })).filter((o) => o.d <= C.reach).sort((a, b) => a.d - b.d);
+    if (!near.length) return null;
+    const vent = near[0].v;
+    const search = bfs(fx, fy);
+    const mid = (C.away[0] + C.away[1]) / 2;
+    let spot = null, best = Infinity;
+    for (let i = 0; i < search.dist.length; i++) {
+      const walk = search.dist[i];
+      if (walk < 0 || walk > C.walk) continue;
+      const x = i % cols, y = (i / cols) | 0;
+      const dv = Math.hypot(vent[0] - x, vent[1] - y);
+      if (dv < C.away[0] || dv > C.away[1] || !clearLine(x, y, vent[0], vent[1])) continue;
+      if (doors.at(x, y) || takenBy(s, x, y) || taken.some(([tx, ty]) => Math.hypot(tx - x, ty - y) < 0.9)) continue;
+      const score = Math.abs(dv - mid) * 2 + walk * 0.5;
+      if (score < best) { best = score; spot = [x, y]; }
+    }
+    return { vent, spot, d: near[0].d };
   }
 
   // Inspect a room: walk to a few spots spread across it, look all around at each, report it clear and hold
@@ -996,8 +1048,6 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     if (a.hp > 0) return { target: a, hit: true, killed: false };
     a.dead = true;
     known.delete(a);
-    kills++;
-    s.kills++;
     killAlien(a);
     emit(s, a.giant ? `${label(s)} brought down THE GIANT in ${where(a.x, a.y)}!` : `${label(s)} killed a hostile in ${where(a.x, a.y)}.`);
     return { target: a, hit: true, killed: true };
@@ -1162,7 +1212,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       path: [], goalKey: null, halt: false, speed: BEHAVIOR.pace.normal,
       target: null, wantFire: false, gaze: null, glance: 0, restHeading: null,
       visible: [], danger: 0, stress: 0, instinct: null, doing: "",
-      flee: null, lastTarget: null, panicCooldown: 0, kills: 0, leaderDist: 0, catchingUp: false,
+      flee: null, lastTarget: null, panicCooldown: 0, leaderDist: 0, catchingUp: false,
       thinkT: index * 0.025, thinkDt: 0,
       glanceT: 2 + Math.random() * 4, glancing: false, glanceOff: 0, watchMoving: 0, watchAim: null,
       chargeCalled: new Map(), lostInfo: null, lostCalledAt: -99, trackerD: null, trackerCalledAt: -99,
@@ -1253,8 +1303,17 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
       setTask(s, { kind: "hold" });
       return ok("Holding position.");
     },
+    ceiling(s, arg, taken = []) {
+      const found = ceilingSpot(s, taken);
+      if (!found) return bad(`No ceiling vent within ${BEHAVIOR.ceiling.reach} tiles.`);
+      const resume = s.task.kind === "alert" || s.task.kind === "ceiling" ? s.task.resume : s.task;
+      setTask(s, { kind: "ceiling", vent: found.vent, spot: found.spot, until: null, resume });
+      const at = `${tiles(found.d)} ${compass(found.vent[0] - here(s)[0], found.vent[1] - here(s)[1])}`;
+      return ok(found.spot ? `Backing off from the ceiling vent ${at}, watching it for ${BEHAVIOR.ceiling.look} seconds.`
+        : `Watching the ceiling vent ${at} for ${BEHAVIOR.ceiling.look} seconds.`);
+    },
     alert(s) {
-      const resume = s.task.kind === "alert" ? s.task.resume : s.task;
+      const resume = s.task.kind === "alert" || s.task.kind === "ceiling" ? s.task.resume : s.task;
       setTask(s, { kind: "alert", since: now, until: now + BEHAVIOR.alert, resume, sweepFrom: s.heading });
       return ok(`Alert: stopping and looking all around for ${BEHAVIOR.alert} seconds.`);
     },
@@ -1514,6 +1573,14 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     if (STANDING[action] || action === "reset") return units.map((s) => result(s, setStanding(s, action, arg)));
     if (!TASKS[action]) return [{ unit: unitSpec, ok: false, detail: `Unknown order "${rawAction}". ${ORDER_HELP}` }];
     if (action === "alert") return units.map((s) => result(s, TASKS.alert(s)));
+    if (action === "ceiling") { // each one on their own, each to a spot of their own
+      const taken = [];
+      return units.map((s) => {
+        const r = TASKS.ceiling(s, arg, taken);
+        if (r.ok && s.task.spot) taken.push(s.task.spot);
+        return result(s, r);
+      });
+    }
     if (action === "getout") { // each one on their own, even a follower whose leader got the same order
       const taken = [];
       return units.map((s) => {
@@ -1540,54 +1607,8 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, killAlien, k
     });
   }
 
-  // ---------- Reporting ----------
-  function describe(s) {
-    if (s.dead) return s.exited ? { health: s.hp, status: "EXITED" } : { health: 0, status: "KIA" };
-    return {
-      health: s.hp,
-      energy: Math.round(s.energy),
-      ...(s.exhausted ? { exhausted: true } : {}),
-      status: s.hp > 60 ? "OK" : s.hp > 30 ? "WOUNDED" : "CRITICAL",
-      team: s.team,
-      following: s.leader ? s.leader.callsign : null,
-      followed_by: followersOf(s).map((o) => o.callsign),
-      task: taskText(s),
-      standing_orders: { ...s.orders },
-      doing: s.doing,
-      instinct: s.instinct,
-      hostiles_in_view: s.visible.map((c) => ({
-        distance_tiles: Math.round(c.d), direction: c.dir, position: { x: Math.round(c.alien.x), y: Math.round(c.alien.y) },
-        health: c.alien.hp, moving: c.alien.progress < 1, charging: c.alien.mode === "chase", ...(c.alien.giant ? { giant: true } : {}),
-      })),
-      kills: s.kills,
-      motion_tracker: tracker(s),
-    };
-  }
-
-  // Movement within range, floor or ducts alike (like the sonar on the map)
-  function tracker(s) {
-    const [px, py] = pos(s);
-    const near = aliens.filter((a) => !a.dead)
-      .map((a) => ({ a, d: Math.hypot(a.x - px, a.y - py) }))
-      .filter((m) => m.d <= BEHAVIOR.tracker)
-      .sort((p, q) => p.d - q.d);
-    if (!near.length) return { signals: 0 };
-    const { a, d } = near[0];
-    return { signals: near.length, nearest: d < 1 ? "right on top of us" : `${tiles(d)} ${compass(a.x - px, a.y - py)}` };
-  }
-
-  function squadStatus() {
-    return {
-      known_hostiles: [...known].filter(([a]) => !a.dead).map(([a, k]) => ({
-        position: { x: Math.round(k.x), y: Math.round(k.y) }, location: where(k.x, k.y), health: a.hp, ...(a.giant ? { giant: true } : {}),
-        last_seen_seconds_ago: Math.round(now - k.seen), spotted_by: k.by,
-      })),
-      hostiles_killed: kills,
-    };
-  }
-
   return {
     tick(dt) { now += dt; },
-    update, arrived, shot, hurt, leave, absent, order, findUnits, describe, squadStatus, nearestDoor,
+    update, arrived, shot, hurt, leave, absent, order, findUnits, nearestDoor,
   };
 }

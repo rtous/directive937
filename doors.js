@@ -93,7 +93,5 @@ function createDoors(spots, grid, roomOf) {
     },
     // someone is welding or cutting it right now (sparks, a hot seam)
     welding: (d) => clock < d.weldingUntil && d.open === 0 && d.seal > 0,
-    state: (d) => (d.sealed ? (d.seal < 1 ? `sealed, ${Math.round((1 - d.seal) * 100)}% cut` : "sealed")
-      : d.seal > 0 ? `${Math.round(d.seal * 100)}% sealed, ${d.open > 0.5 ? "open" : "closed"}` : d.open > 0.5 ? "open" : "closed"),
   };
 }

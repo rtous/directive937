@@ -84,7 +84,6 @@
       letter-spacing: 0.2em;
       color: var(--acid);
     }
-    h2 .tag { margin-left: 10px; padding: 1px 6px; border: 1px solid var(--yellow); color: var(--yellow); font-weight: normal; letter-spacing: 0.14em; text-shadow: 0 0 6px rgba(238, 242, 160, 0.4); }
     p { font-size: 12.5px; max-width: 70ch; }
     p + p { margin-top: 10px; }
     .dim { color: var(--synthetic); }
@@ -112,16 +111,8 @@
       text-shadow: 0 0 6px rgba(101, 191, 198, 0.6);
     }
 
-    /* agents: one card each */
-    .agents { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-    .agent { border: 2px solid var(--line); padding: 12px 14px; position: relative; }
-    .agent::before { content: ""; position: absolute; top: -2px; left: -2px; width: 14px; height: 14px; border-top: 3px solid var(--cryo); border-left: 3px solid var(--cryo); }
-    .agent h3 { font-size: 12px; letter-spacing: 0.14em; color: var(--seegson); margin-bottom: 6px; }
-    .agent p { font-size: 12px; }
-
     /* ---------- buttons ---------- */
     .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; margin-top: 30px; }
-    .agent-actions { margin-top: 16px; }
     .play-btn {
       display: inline-flex; align-items: center; gap: 12px;
       padding: 12px 28px 10px;
@@ -136,18 +127,11 @@
     }
     .play-btn:hover, .play-btn:focus-visible { outline: none; background: rgba(101, 191, 198, 0.88); box-shadow: 0 0 16px rgba(101, 191, 198, 0.85), 0 0 44px rgba(101, 191, 198, 0.45); }
     .play-btn:active { background: var(--seegson); border-color: var(--seegson); }
-    .ghost-btn {
-      padding: 8px 16px;
-      font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
-      text-decoration: none;
-      color: var(--cryo);
-      border: 2px solid rgba(101, 191, 198, 0.6);
-    }
-    .ghost-btn:hover, .ghost-btn:focus-visible { outline: none; border-color: var(--cryo); box-shadow: 0 0 10px rgba(101, 191, 198, 0.45); }
 
     .status-line { margin-top: 36px; padding-top: 10px; border-top: 2px dashed var(--line); display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 11px; color: var(--synthetic); letter-spacing: 0.08em; }
     .status-line b { font-weight: normal; color: var(--seegson); }
     .status-line b.warn { color: var(--acid); animation: blink 1.2s steps(1) infinite; }
+    .status-line .credit { margin-left: auto; } /* the author, at the far right of the status line */
 
     @media (max-width: 600px) {
       body { padding: 12px 8px 24px; }
@@ -175,62 +159,23 @@
           <a class="play-btn" href="game.html">PLAY</a>
         </div>
 
-        <h2>AI AGENT <span class="tag">OPTIONAL</span></h2>
-        <p>The game plays fine on its own: you give orders with the console buttons and the soldiers call in contacts
-          themselves. You can also link an AI agent running on your own computer. The agent then commands
-          and voices the whole squad: you talk to the marines in plain language over the radio ("Drake, hold the
-          corridor", "sneak into the medlab, don't shoot") and they answer in their own voices.</p>
-        <p class="dim">The agent talks to the game through a small bridge program: one file, no installs, needs Node.js
-          18 or newer. It only listens on your own machine (127.0.0.1) and only accepts this game's address.</p>
-        <div class="actions agent-actions">
-          <a class="ghost-btn" href="agent.html" target="_blank">⚙ AGENT SETUP</a>
-        </div>
-
-        <h2>LINKING CLAUDE CODE</h2>
+        <h2>GIVING ORDERS</h2>
         <ol class="steps">
-          <li>Open a terminal and start Claude Code. To skip the approval prompt on every radio call, start it
-            with the bridge pre-approved:
-            <pre>claude --allowedTools "Bash(node ~/.directive937/bridge.mjs:*)"</pre></li>
-          <li>Open <a href="agent.html" target="_blank">⚙ AGENT SETUP</a>, press <code>COPY</code> and paste the prompt
-            into Claude Code. It downloads the bridge, starts it and prints a banner when it's ready.</li>
-          <li>Press <code>PLAY</code>, then press <code>LINK AGENT</code> in the top bar. If the browser asks to let the
-            page reach apps on your device, allow it. The top bar shows <code>AGENT: STANDING BY</code> when the
-            agent is listening.</li>
-          <li>Type your orders in the comms box. To finish, tell the agent to stop; it shuts the bridge down with
-            <code>node ~/.directive937/bridge.mjs stop</code>.</li>
+          <li>Use the console: tick the soldiers to order (none ticked: the one on camera), then SLOW, RUN, LOOK AROUND, WATCH CEILING,
+            SEAL/UNSEAL DOOR or FOLLOW. The pad on the tactical map moves them; the pad on the camera tells them
+            where to look.</li>
+          <li>Or type in the comms box: <code>FROST, GO EAST</code>, <code>EVERYONE REGROUP</code>,
+            <code>VASQUEZ SEAL D3</code>, <code>HUDSON CHECK THE MEDLAB</code>, <code>HOLD FIRE</code>,
+            <code>RUN TO THE EXIT</code>. They answer on the radio.</li>
         </ol>
-
-        <h2>OTHER AGENTS</h2>
-        <div class="agents">
-          <div class="agent">
-            <h3>TERMINAL AGENTS</h3>
-            <p>Any coding agent that can run shell commands (Codex CLI, Gemini CLI and the like) can use the same
-              prompt from <a href="agent.html" target="_blank">AGENT SETUP</a>. Let it run
-              <code>node ~/.directive937/bridge.mjs</code> without asking each time, so the radio loop doesn't
-              stall.</p>
-          </div>
-          <div class="agent">
-            <h3>MCP CLIENTS</h3>
-            <p>Agents that use MCP tools can run the bridge as an MCP server instead (the <code>bridge/</code> folder):
-              same game, tools instead of commands. For Claude Code:</p>
-            <pre>cd bridge && npm install
-claude mcp add directive937 \
-  -e DIRECTIVE937_ORIGINS=<span id="origin">https://your-game-server</span> \
-  -- node /full/path/bridge/index.js</pre>
-          </div>
-        </div>
 
         <div class="status-line">
           <span>SQUAD <b>4/4 READY</b></span>
           <span>COLONY <b class="warn">NO RESPONSE</b></span>
-          <span>AGENT LINK <b>OPTIONAL</b></span>
+          <span class="credit">BY <a href="https://personals.ac.upc.edu/rtous/index.html" target="_blank" rel="noopener">RUBEN TOUS</a> (2026)</span>
         </div>
       </div>
     </div>
   </main>
-  <script>
-    // the MCP command needs this page's own address as the allowed origin
-    if (location.protocol.startsWith("http")) document.getElementById("origin").textContent = location.origin;
-  </script>
 </body>
 </html>

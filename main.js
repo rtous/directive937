@@ -1,10 +1,10 @@
 "use strict";
 
-// The control room: the helmet-camera CRT, the biomonitor, the tactical map, the comms log, the squad console
-// and the link to the player's AI agent. Builds a world for the sector the squad is in (startSector) and runs the loop.
+// The control room: the helmet-camera CRT, the biomonitor, the tactical map, the comms log and the squad
+// console. Builds a world for the sector the squad is in (startSector) and runs the loop.
 
 // ---------- Config ----------
-// The squad. One AI agent (on the player's machine) commands and voices all of them.
+// The squad.
 // color: the unit's dot on the tactical map (and a hint of it in the squad console)
 // female: which death scream plays (sounds/shouting_female.wav or shouting_male.wav)
 const SQUAD = [
@@ -254,8 +254,8 @@ function updateVitals() {
 const tacMap = createTacticalMap($("map"), { colors: SQUAD.map((u) => u.color), onWave: () => sound.beep() });
 
 // ---------- Comms log ----------
-// Only what is said on the radio: CONTROL (the player), the soldiers and MOTHER (voiced by the AI agent).
-// Game events and order results go to the agent, not here; with no agent linked, radioFallback calls them in.
+// Only what is said on the radio: CONTROL (the player), the soldiers and MOTHER (the ship computer).
+// Game events are called in by radioCall.
 const logEl = $("log");
 
 // kind: "alert" | "player" | "soldier" | "mother" | "system"
@@ -272,7 +272,7 @@ function addLog(text, kind, who = "") {
     w.textContent = who + ":";
     li.appendChild(w);
   }
-  li.appendChild(document.createTextNode(text.toUpperCase())); // agent text is never parsed as HTML
+  li.appendChild(document.createTextNode(text.toUpperCase())); // never parsed as HTML
   const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 30;
   logEl.appendChild(li);
   while (logEl.children.length > 80) logEl.firstChild.remove();
@@ -293,8 +293,8 @@ function isUrgent(unit, text) {
   return performance.now() - (hostileEventAt.get(unit) ?? -1e9) < 10000 || ALARM_WORDS.test(text);
 }
 
-// With no agent linked: game events as short radio calls, from the soldier or from MOTHER (the ship computer).
-// Events are written for the agent ("Unit 2 (VASQUEZ) CONTACT: ..."); this turns them into what was said.
+// Game events as short radio calls, from the soldier or from MOTHER (the ship computer).
+// Events are written as reports ("Unit 2 (VASQUEZ) CONTACT: ..."); this turns them into what was said.
 const RADIO_CALLS = [
   [/^CONTACT: (.*)/, "Contact! $1"],
   [/^HOSTILE CHARGING AT \w+! (.*)/, "It's coming right at me! $1"],
@@ -320,7 +320,7 @@ const RADIO_CALLS = [
   [/^has no route to door (\w+)\. Holding\./, "Can't get to door $1. Holding."],
   [/^stopped at sealed door (\w+) .*/, "Sealed door $1 in the way. Waiting here: it needs cutting open."],
 ];
-function radioFallback(s, text) {
+function radioCall(s, text) {
   if (/^(SECTOR CLEARED|SQUAD LOST|MISSION COMPLETE)/.test(text)) return; // in the log already, or over the camera feed
   if (/ entering .* while /.test(text)) return;        // too frequent to call in
   if (/ went through .*\d+ of \d+ through/.test(text)) return; // one by one through an access: MOTHER sums it up once all are across
@@ -331,118 +331,8 @@ function radioFallback(s, text) {
   say(rule ? body.replace(rule[0], rule[1]) : body, "soldier", s.callsign, s.id);
 }
 
-// Who a radio message from the agent is from: a unit (number or name) or the ship computer
-function speakerLabel(speaker) {
-  const sp = String(speaker || "").trim();
-  if (/^(mother|ship|computer)$/i.test(sp)) return { who: "MOTHER", kind: "mother" };
-  const unit = world && sp ? world.findUnits(sp)[0] : null;
-  if (unit) return { who: unit.callsign, kind: "soldier", unit: unit.id };
-  return { who: sp ? sp.toUpperCase() : "UNKNOWN", kind: "soldier" };
-}
-
-// ---------- Agent link ----------
-// The player's AI agent runs bridge.mjs on their own machine (see agent.html). The browser connects to it on
-// localhost, so this works even when the game page itself comes from a remote server.
-// bridge -> game: Server-Sent Events. game -> bridge: POST.
-// The game only reaches for the bridge once the player presses LINK AGENT (connecting to localhost can make the
-// browser ask for permission, which players without an agent shouldn't see). The choice is remembered, so a
-// reload links again by itself; UNLINK forgets it.
-const BRIDGE_URL = (new URLSearchParams(location.search).get("bridge") || "http://127.0.0.1:8937").replace(/\/$/, "");
-const LINK_KEY = "directive937.agentLink";
-const agentPill = $("agent-pill");
-const linkBtn = $("link-btn");
-let stream = null;
-let bridgeOpen = false;
-let agentListening = false;
-let wantLink = false;
-let retryTimer = null;
-
-function setAgentPill() {
-  linkBtn.textContent = wantLink ? "UNLINK" : "LINK AGENT";
-  linkBtn.classList.toggle("on", wantLink);
-  linkBtn.title = wantLink ? "Disconnect from your AI agent" : "Connect to your AI agent (start it first: see AGENT SETUP)";
-  // linked but not listening: the agent is thinking, or its loop isn't running
-  const [text, cls] = !wantLink ? ["OFFLINE", ""] : !bridgeOpen ? ["CONNECTING", "busy"]
-    : agentListening ? ["STANDING BY", "listening"] : ["LINKED", "linked"];
-  agentPill.textContent = `AGENT: ${text}`;
-  agentPill.className = `status-pill agent-pill ${cls}`;
-}
-
-function sendBridge(msg) {
-  if (!bridgeOpen) return;
-  // text/plain keeps it a "simple" request (no CORS preflight); the bridge parses it as JSON
-  fetch(`${BRIDGE_URL}/game/message`, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify(msg),
-  }).catch(() => {});
-}
-
-// Status sent to the agent: every unit's position, orders and surroundings, plus vitals
-function fullStatus() {
-  if (!world) return null;
-  const st = world.status();
-  st.units.forEach((u, i) => {
-    u.vitals = { heart_rate: vitals[i].bpm, spo2: vitals[i].o2, resp: vitals[i].resp, energy: vitals[i].energy };
-  });
-  st.on_camera = SQUAD[selected].id;
-  return st;
-}
-const sendEvent = (text, unit = null) => sendBridge({ type: "event", unit, text, status: fullStatus() });
-
-function connectBridge() {
-  if (!wantLink) return;
-  stream = new EventSource(`${BRIDGE_URL}/game/stream`);
-  stream.onopen = () => {
-    bridgeOpen = true;
-    setAgentPill();
-    sendBridge({ type: "status", status: fullStatus() });
-  };
-  stream.onerror = () => {
-    bridgeOpen = false;
-    agentListening = false;
-    setAgentPill();
-    // EventSource retries on its own unless the bridge refused us outright
-    if (stream && stream.readyState === EventSource.CLOSED) {
-      stream.close();
-      stream = null;
-      retryTimer = setTimeout(connectBridge, 5000);
-    }
-  };
-  stream.onmessage = (e) => {
-    let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
-    if (msg.type === "agent") {
-      agentListening = !!msg.listening;
-      setAgentPill();
-    } else if (msg.type === "radio" && typeof msg.text === "string") {
-      const { who, kind, unit } = speakerLabel(msg.speaker);
-      say(msg.text, kind, who, unit);
-    } else if (msg.type === "order" && world) {
-      const results = world.order(msg.unit, msg.action, msg.target);
-      sendBridge({ type: "order_result", id: msg.id, results, status: fullStatus() });
-    }
-  };
-}
-
-function linkAgent(on) {
-  wantLink = on;
-  try { if (on) localStorage.setItem(LINK_KEY, "1"); else localStorage.removeItem(LINK_KEY); } catch {}
-  clearTimeout(retryTimer);
-  if (on) {
-    if (!stream) connectBridge();
-  } else {
-    if (stream) stream.close();
-    stream = null;
-    bridgeOpen = false;
-    agentListening = false;
-  }
-  setAgentPill();
-}
-linkBtn.addEventListener("click", () => linkAgent(!wantLink));
-
-// ---------- Typed orders without an agent ----------
-// textorders.js (optional: without it this does nothing) turns what CONTROL types into game orders. With nobody
+// ---------- Typed orders ----------
+// textorders.js (optional: without it the comms box only logs what's typed) turns it into game orders. With nobody
 // named, the orders go to the ticked soldiers, or the one on camera, like the console buttons. Each soldier told
 // answers on the radio with what they're doing (or why they can't). Returns false if nothing was understood.
 function localOrders(text) {
@@ -468,7 +358,7 @@ function localOrders(text) {
 }
 
 // ---------- Comms input ----------
-// No addressee picker: the player names who they talk to ("Frost, check the medlab"), the agent works it out
+// No addressee picker: the player names who they talk to ("Frost, check the medlab")
 $("comms-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = $("comms-input");
@@ -476,23 +366,16 @@ $("comms-form").addEventListener("submit", (e) => {
   if (!text) return;
   input.value = "";
   say(text, "player", "CONTROL");
-  if (!bridgeOpen) {
-    if (localOrders(text)) return;
-    if (typeof TextOrders !== "undefined" && world) addLog(`NOT UNDERSTOOD. ${TextOrders.help}`, "alert");
-    addLog(wantLink
-      ? "AGENT NOT CONNECTED YET. IS IT RUNNING? SEE AGENT SETUP (TOP BAR)."
-      : "NO AGENT LINK. START YOUR AI AGENT (SEE AGENT SETUP), THEN PRESS LINK AGENT (TOP BAR).", "alert");
-    return;
+  if (!localOrders(text) && typeof TextOrders !== "undefined" && world && !world.mission.over) {
+    addLog(`NOT UNDERSTOOD. ${TextOrders.help}`, "alert");
   }
-  sendBridge({ type: "player_message", to: "all", text, status: fullStatus() });
 });
 
 // ---------- Squad console ----------
 // Big buttons beside the monitor pick whose helmet camera is on screen, and show each soldier's state.
 // Under the biomonitor, a chip per soldier ticks them for orders; the order buttons, the FOLLOW selector, the
 // look pad beside them (where they look) and the move pad in the corner of the tactical map (where they head) then
-// order the ticked soldiers (with none ticked, the one on camera). These are the same orders
-// the agent gives: each one shows in the comms log and is reported to the agent.
+// order the ticked soldiers (with none ticked, the one on camera). Each one shows in the comms log.
 const camButtons = SQUAD.map((u, i) => {
   const b = document.createElement("button");
   b.type = "button";
@@ -524,7 +407,9 @@ const picks = SQUAD.map((u) => {
 });
 const selAll = $("sel-all");
 const followSel = $("go-follow");
-const orderButtons = [...document.querySelectorAll("#group-orders button, #move-pad button, #look-pad button")];
+const orderButtons = [...document.querySelectorAll("#group-orders button, #move-pad button, #look-pad button, #seal-btn")];
+const runBtn = document.querySelector('#group-orders [data-act="run"]');
+const RUN_TITLE = runBtn.title;
 
 // HOLD / SLOW / RUN: one at a time; none lit = moving at normal pace (the default). Pressing the lit one goes back
 // to that default; HOLD let go = carry on, or rejoin the soldier they followed. HOLD lights only on a soldier told
@@ -559,7 +444,11 @@ function updateSelection() {
   const off = !world || !idx.length || world.mission.over;
   orderButtons.forEach((b) => { b.disabled = off; });
   followSel.disabled = off;
-  // HOLD / SLOW / RUN light up while every one of them is in that mode (whoever gave the order: buttons or agent)
+  // RUN is off while all of them are out of breath (energy hit 0: no running until it's back up to recover)
+  const winded = !off && idx.every((i) => world.soldiers[i].exhausted);
+  if (winded) runBtn.disabled = true;
+  runBtn.title = winded ? `Out of breath: no running until energy is back up to ${BEHAVIOR.energy.recover}` : RUN_TITLE;
+  // HOLD / SLOW / RUN light up while every one of them is in that mode (whoever gave the order: buttons or typed)
   const mode = off ? null : sharedMode(idx);
   orderButtons.forEach((b) => b.classList.toggle("on", MODES.includes(b.dataset.act) && b.dataset.act === mode));
   if (!off) updateSealButton(idx);
@@ -588,11 +477,10 @@ function updateSquad() {
   updateSelection();
 }
 
-// What CONTROL did on the console: in the comms log, a radio burst, and an event for the agent
-function reportConsole(who, what, results, unit = null) {
+// What CONTROL did on the console: in the comms log, with a radio burst
+function reportConsole(who, what) {
   say(`${who}: ${what.toUpperCase()}`, "player", "CONTROL");
   updateSquad();
-  sendEvent(`CONTROL used the console: ${who} ${what} (${results.map((r) => `${r.name || ""} ${r.detail}`.trim()).join(" ")}).`, unit);
 }
 
 // Puts the soldiers in one mode ("hold" | "slow" | "run" | "normal"). Returns [what CONTROL said, results].
@@ -623,7 +511,8 @@ function setMode(units, mode) {
 
 // act -> [what CONTROL says, the world order] (HOLD / SLOW / RUN go through setMode)
 const GROUP_ORDERS = {
-  alert: ["alert, look all around", "alert"],
+  alert: ["look all around", "alert"],
+  ceiling: ["watch the ceiling", "ceiling"],
   getout: ["get out of there, to the nearest corridor", "getout"],
   north: ["head north", "north"],
   south: ["head south", "south"],
@@ -649,7 +538,7 @@ function doorJob(idx) {
   const door = world.nearestDoor(i);
   return { i, door, job: door && door.sealed ? "unseal" : "seal" };
 }
-const sealBtn = document.querySelector('#group-orders [data-act="seal"]');
+const sealBtn = $("seal-btn");
 function updateSealButton(idx) {
   const { door, job } = idx.length ? doorJob(idx) : { door: null, job: "seal" };
   sealBtn.title = door ? `${job === "seal" ? "Weld" : "Cut open"} door ${door.id} (${door.where}), the nearest one: ` +
@@ -677,7 +566,12 @@ function groupOrder(act) {
   }
   const live = SQUAD.filter((u, i) => inPlay(i)).length;
   const who = idx.length === live && live > 1 ? "ALL" : idx.map((i) => SQUAD[i].callsign).join(", ");
-  reportConsole(who, what, results, idx.length === 1 ? SQUAD[idx[0]].id : null);
+  reportConsole(who, what);
+  // anyone who can't do it says why (e.g. WATCH CEILING with no vent close by)
+  for (const r of results || []) {
+    const u = !r.ok && SQUAD.find((x) => x.id === r.unit);
+    if (u) say(r.detail, "soldier", u.callsign, u.id);
+  }
 }
 
 // Who a soldier follows, from the FOLLOW selector. "" = nobody: they stop and hold until given an order.
@@ -692,7 +586,7 @@ function setLeader(i, leader) {
     addLog(`${s.callsign}: ${results.map((r) => r.detail).join(" ")}`, "alert");
     return updateSquad();
   }
-  reportConsole(s.callsign, L ? `follow ${L.callsign}` : "stop following, hold position", results, s.id);
+  reportConsole(s.callsign, L ? `follow ${L.callsign}` : "stop following, hold position");
 }
 
 followSel.innerHTML = `<option value="-">FOLLOW…</option><option value="">FOLLOW NOBODY</option>` +
@@ -729,7 +623,7 @@ function selectUnit(i, force = false) {
 // area (MAP_AREAS) it's in.
 
 // ---------- The comms log's own lines ----------
-// What the player reads: grunt talk, short, rude and sarcastic. The agent gets the plain facts (sendEvent).
+// What the player reads: grunt talk, short, rude and sarcastic.
 const pickOne = (lines) => lines[Math.floor(Math.random() * lines.length)];
 const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
@@ -817,23 +711,17 @@ function startSector([sx, sy], from = null, carry = null, how = null) {
       muffle: s === viewer ? 12000 : Math.max(800, 6000 / (1 + d / 6)),
     });
   };
-  // The agent voices events; with no agent linked the soldiers (or MOTHER) call them in themselves
+  // Game events: the soldiers (or MOTHER) call them in on the radio
   world.onEvent = (s, text) => {
     if (s && HOSTILE_EVENT.test(text)) hostileEventAt.set(s.id, performance.now());
-    if (bridgeOpen) sendEvent(text, s ? s.id : null);
-    else radioFallback(s, text);
+    radioCall(s, text);
   };
   world.onMissionEnd = endSector;
 
-  const objective = world.mission.status().objective;
-  const lost = world.soldiers.filter((s) => s.dead).map((s) => s.callsign);
-  const squad = `${world.mission.total} of ${SQUAD.length} in the squad${lost.length ? ` (lost earlier: ${lost.join(", ")})` : ""}.`;
   // through an access: one call from MOTHER, who made it and where they are now; otherwise the briefing line
   if (crossing) say(crossingLine(level, crossing, newArea), "mother", "MOTHER");
   else addLog(arrivalLine(level, from, newArea, how), "system");
   crossing = null;
-  sendEvent(`New sector: ${level.name}. ${level.briefing} ${squad} They are ${level.start ? `in the ${level.start}` : "in a corridor"}. ${objective} ` +
-    "The map is new: see colony_map, doors and mission.accesses in the status.");
 }
 
 let crossing = null; // { out, lost, via }: who made it through the access just taken, for MOTHER's call on arrival
@@ -958,13 +846,9 @@ function frame(now) {
     $("ship-clock").textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     updateVitals();
     updateSquad();
-    sendBridge({ type: "status", status: fullStatus() });
   }
 }
 
 // ---------- Start ----------
-let linkedBefore = false;
-try { linkedBefore = localStorage.getItem(LINK_KEY) === "1"; } catch {}
-linkAgent(linkedBefore);
 startSector(SECTORS.entry);
 requestAnimationFrame(loop);

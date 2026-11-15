@@ -151,12 +151,12 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .roster input[type="checkbox"]:disabled { opacity: 0.3; cursor: default; }
 .sel-all { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 
-/* orders for the ticked soldiers (or the one on camera): squad + buttons on the left, a big direction pad on the right */
+/* orders for the ticked soldiers (or the one on camera): squad + buttons (the look pad is on the camera) */
 .group-orders { display: flex; gap: 12px; align-items: stretch; font-size: 10px; }
 .squad-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .squad-main h2 { margin-bottom: 0; }
-.go-buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; } /* 2 rows of 4 */
-.go-buttons select { grid-column: span 2; } /* FOLLOW fills the second row */
+.go-buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; } /* SLOW RUN ALERT SEAL */
+.go-buttons select { grid-column: span 4; } /* FOLLOW: the whole second row */
 .group-orders button, .group-orders select {
   background: transparent;
   border: 2px solid var(--line);
@@ -174,27 +174,42 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .group-orders button:active:not(:disabled) { background: var(--seegson); color: var(--deep); }
 .group-orders button.on { background: var(--seegson); border-color: var(--seegson); color: var(--deep); }
 .group-orders button:disabled, .group-orders select:disabled { opacity: 0.3; cursor: default; }
-/* the direction pad: as tall as the whole panel */
-.dpad {
-  flex: none;
-  align-self: center;
+/* SLOW / RUN / ALERT / SEAL: tall solid Cryo-blue buttons (brighter on hover; lit ones Seegson green). The
+   tactical map above takes whatever height is left, so it gives up what these gain */
+.go-buttons button { padding: 12px 2px; font-size: 10px; background: var(--cryo); border-color: var(--cryo); color: var(--deep); }
+.go-buttons button:hover:not(:disabled) { background: var(--cryo); border-color: var(--cryo); color: var(--deep); filter: brightness(1.2); }
+.go-buttons button:active:not(:disabled), .go-buttons button.on { background: var(--seegson); border-color: var(--seegson); color: var(--deep); filter: none; }
+/* the look pad, over the top-right corner of the helmet cam: where they look (sized by the monitor, like the OSD) */
+.look-pad {
+  position: absolute;
+  top: 4%;
+  right: 5%;
+  z-index: 2;
   display: grid;
-  grid-template-columns: repeat(3, 38px);
-  grid-template-rows: repeat(3, 38px);
-  gap: 3px;
-  padding-left: 12px;
-  border-left: 2px dashed var(--line);
+  grid-template-columns: repeat(3, 5.2cqw);
+  grid-template-rows: repeat(3, 5.2cqw);
+  gap: 0.5cqw;
 }
-.dpad button { padding: 0; font-size: 18px; color: var(--seegson); background: var(--deep); }
-.dpad .c { font-size: 12px; }
-.dpad .n { grid-area: 1 / 2; }
-.dpad .w { grid-area: 2 / 1; }
-.dpad .c { grid-area: 2 / 2; }
-.dpad .e { grid-area: 2 / 3; }
-.dpad .s { grid-area: 3 / 2; }
-/* the look pad (beside the orders): where they look */
-.look-pad button { color: var(--cryo); }
-.look-eye { grid-area: 1 / 1; place-self: center; width: 22px; height: 22px; fill: none; stroke: var(--cryo); stroke-width: 1.6; opacity: 0.8; }
+.look-pad button {
+  padding: 0;
+  font: inherit;
+  font-size: 2.9cqw;
+  line-height: 1;
+  color: var(--cryo);
+  border: 2px solid var(--line);
+  background: rgba(2, 9, 11, 0.6);
+  cursor: pointer;
+}
+.look-pad .c { font-size: 2.2cqw; }
+.look-pad .n { grid-area: 1 / 2; }
+.look-pad .w { grid-area: 2 / 1; }
+.look-pad .c { grid-area: 2 / 2; }
+.look-pad .e { grid-area: 2 / 3; }
+.look-pad .s { grid-area: 3 / 2; }
+.look-pad button:hover:not(:disabled) { border-color: var(--line-hi); }
+.look-pad button:active:not(:disabled) { background: var(--seegson); color: var(--deep); }
+.look-pad button:disabled { opacity: 0.3; cursor: default; }
+.look-eye { grid-area: 1 / 1; place-self: center; width: 70%; height: 70%; fill: none; stroke: var(--cryo); stroke-width: 1.6; opacity: 0.8; }
 /* the move pad, in the bottom-right corner of the tactical map: a cross, the letters outside (as far as possible
    that way), the arrows inside (one leg: to the next room, junction, dead end or sealed door) */
 .map-dpad {
@@ -233,7 +248,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .map-dpad button:disabled { opacity: 0.3; cursor: default; }
 
 /* ---------- Tactical map ---------- */
-/* left: map over comms; right: camera, a one-line biomonitor, the squad controls */
+/* left: map over the squad controls; right: camera, a one-line biomonitor, comms */
 .map-panel { flex: 1.2 1 0; min-height: 0; display: flex; flex-direction: column; }
 .map-crt {
   flex: 1;
@@ -352,7 +367,10 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .paper-map canvas { flex: 1; min-height: 0; width: 100%; display: block; }
 
 /* ---------- Comms ---------- */
-.comms { display: flex; flex-direction: column; }
+/* a thin strip under the biomonitor (the last few lines, scrolling), so the camera gets the height */
+.comms { flex: none; height: 118px; display: flex; flex-direction: column; padding-top: 6px; padding-bottom: 6px; }
+.comms h2 { margin-bottom: 4px; }
+.comms .comms-form { margin-top: 4px; padding: 3px 8px; }
 .log {
   list-style: none;
   font-size: 11px;
@@ -443,8 +461,8 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .cam-panel { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .cam-panel .crt-bezel { padding: 12px; }
 .cam-row { flex: 1; min-height: 0; display: flex; gap: 10px; }
-/* the four big camera buttons, stacked to the right of the monitor */
-.cam-select { flex: 0 0 132px; display: flex; flex-direction: column; gap: 8px; }
+/* the four big camera buttons, stacked to the left of the monitor */
+.cam-select { order: -1; flex: 0 0 132px; display: flex; flex-direction: column; gap: 8px; }
 .cam-select button {
   flex: 1;
   min-height: 0;
@@ -617,12 +635,12 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
   .cam-panel { flex: none; }
   .crt { height: auto; width: 100%; }
   .cam-row { flex-direction: column; }
-  .cam-select { flex: none; flex-direction: row; }
+  .cam-select { order: 0; flex: none; flex-direction: row; }
   .cam-select .cs-id { font-size: 24px; }
   .roster { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .vitals-id, .ecg-wrap { display: none; }
   .map-panel { flex: none; height: 70vw; }
-  .comms { flex: none; height: 320px; }
+  .comms { height: 180px; }
   .brand .dim { display: none; }
 }
 

@@ -16,8 +16,8 @@ const DOOR = {
   speed: 2.2,       // how fast a door slides (fraction of fully open per second)
   holdOpen: 2.5,    // seconds a door stays open after someone last asked
   passable: 0.8,    // how open it must be to step in
-  sealTime: 20,     // seconds of welding to seal one
-  cutTime: 15,      // seconds of cutting to unseal one
+  sealTime: 16,     // seconds of welding to seal one
+  cutTime: 12,      // seconds of cutting to unseal one
 };
 
 // spots: [[x, y, "sealed"?]] door tiles (sealed: welded shut from the start). grid: the level's grid (to tell which way each passage runs).

@@ -441,6 +441,32 @@ function linkAgent(on) {
 }
 linkBtn.addEventListener("click", () => linkAgent(!wantLink));
 
+// ---------- Typed orders without an agent ----------
+// textorders.js (optional: without it this does nothing) turns what CONTROL types into game orders. With nobody
+// named, the orders go to the ticked soldiers, or the one on camera, like the console buttons. Each soldier told
+// answers on the radio with what they're doing (or why they can't). Returns false if nothing was understood.
+function localOrders(text) {
+  if (typeof TextOrders === "undefined" || !world || world.mission.over) return false;
+  const parsed = TextOrders.parse(text, { units: SQUAD, rooms: world.rooms });
+  if (!parsed) return false;
+  const unit = parsed.unit ?? targetIdx().map((i) => SQUAD[i].id).join(",");
+  if (!unit) return false;
+  const replies = new Map(); // unit id -> what they say back
+  for (const [action, target] of parsed.orders) {
+    for (const r of world.order(unit, action, target)) {
+      if (!replies.has(r.unit)) replies.set(r.unit, []);
+      replies.get(r.unit).push(r.detail);
+    }
+  }
+  for (const [id, lines] of replies) {
+    const u = SQUAD.find((x) => x.id === id);
+    if (u) say(lines.join(" "), "soldier", u.callsign, u.id);
+    else addLog(lines.join(" "), "alert");
+  }
+  updateSquad();
+  return true;
+}
+
 // ---------- Comms input ----------
 // No addressee picker: the player names who they talk to ("Frost, check the medlab"), the agent works it out
 $("comms-form").addEventListener("submit", (e) => {
@@ -451,6 +477,8 @@ $("comms-form").addEventListener("submit", (e) => {
   input.value = "";
   say(text, "player", "CONTROL");
   if (!bridgeOpen) {
+    if (localOrders(text)) return;
+    if (typeof TextOrders !== "undefined" && world) addLog(`NOT UNDERSTOOD. ${TextOrders.help}`, "alert");
     addLog(wantLink
       ? "AGENT NOT CONNECTED YET. IS IT RUNNING? SEE AGENT SETUP (TOP BAR)."
       : "NO AGENT LINK. START YOUR AI AGENT (SEE AGENT SETUP), THEN PRESS LINK AGENT (TOP BAR).", "alert");
@@ -496,7 +524,7 @@ const picks = SQUAD.map((u) => {
 });
 const selAll = $("sel-all");
 const followSel = $("go-follow");
-const orderButtons = [...document.querySelectorAll("#group-orders button, #move-pad button")];
+const orderButtons = [...document.querySelectorAll("#group-orders button, #move-pad button, #look-pad button")];
 
 // HOLD / SLOW / RUN: one at a time; none lit = moving at normal pace (the default). Pressing the lit one goes back
 // to that default; HOLD let go = carry on, or rejoin the soldier they followed. HOLD lights only on a soldier told
@@ -625,7 +653,7 @@ const sealBtn = document.querySelector('#group-orders [data-act="seal"]');
 function updateSealButton(idx) {
   const { door, job } = idx.length ? doorJob(idx) : { door: null, job: "seal" };
   sealBtn.title = door ? `${job === "seal" ? "Weld" : "Cut open"} door ${door.id} (${door.where}), the nearest one: ` +
-    `${job === "seal" ? "20" : "15"} s, one soldier (the one on camera if ticked, else a group leader)` : "No door within reach";
+    `${job === "seal" ? "16" : "12"} s, one soldier (the one on camera if ticked, else a group leader)` : "No door within reach";
   if (!door) sealBtn.disabled = true;
 }
 
@@ -922,7 +950,6 @@ function frame(now) {
 
   if (now - lastQuarter > 250) {
     lastQuarter = now;
-    if (world) $("osd-out").textContent = `OUT ${world.mission.out.length}/${world.mission.total}`;
     sound.setTension(gameTension());
   }
   if (now - lastSecond > 1000) {

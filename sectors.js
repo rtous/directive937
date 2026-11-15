@@ -366,7 +366,7 @@ function generateSector(sx, sy) {
     }
     for (const s of slots) for (const n of neighbours(s)) {
       if (!s.there || !n.there || n.i + n.j < s.i + s.j) continue;
-      if (!joins.some(([a, b]) => (a === s && b === n) || (a === n && b === s)) && rnd() < 0.35) joins.push([s, n, false]);
+      if (!joins.some(([a, b]) => (a === s && b === n) || (a === n && b === s)) && rnd() < 0.55) joins.push([s, n, false]);
     }
   }
 
@@ -392,12 +392,12 @@ function generateSector(sx, sy) {
     }
     const inner = tiles.filter((t) => !junctionTiles.has(t.join())); // not where corridors meet
     corridorTiles.push(...inner);
-    // a door now and then: next to a room, or partway along; only links off the maze may start sealed (so
-    // everything can still be reached)
-    if (inner.length && rnd() < 0.6) {
+    // a door now and then (next to a room, or partway along). Links off the maze always get one, welded shut
+    // from the start: only they may start sealed, so everything can still be reached without cutting
+    if (inner.length && (!inMaze || rnd() < 0.6)) {
       const ends = [p.room && tiles[0], q.room && tiles[tiles.length - 1]].filter(Boolean);
       const door = ends.length ? pick(ends) : inner[Math.floor(inner.length / 2)];
-      doors.push(!inMaze && rnd() < 0.75 ? [...door, "sealed"] : door);
+      doors.push(inMaze ? door : [...door, "sealed"]);
     }
     for (let k = 2; k < tiles.length - 1; k += 4) {
       if (!doors.some(([dx, dy]) => dx === tiles[k][0] && dy === tiles[k][1])) lights.push(tiles[k]);

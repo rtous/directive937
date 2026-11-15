@@ -50,7 +50,7 @@ follow through the same one. Patrols, inspections, spreading out, retreats and p
 nobody leaves by accident: only a deliberate order takes a soldier through: `goto` an access (`goto east access`,
 or `goto exit` for the one the squad is leaving through or else the nearest), a grid position inside one, or a
 direction (the console's direction pad included) that ends in one. A group following its leader goes through
-with them. The monitor shows how many are through (`OUT 1/4`). Once nobody is left inside, if at least one soldier went through, the next sector starts straight away: the squad
+with them. Once nobody is left inside, if at least one soldier went through, the next sector starts straight away: the squad
 arrives next to the matching access, with the health and energy they had (crossing doesn't rest them; energy comes back slowly, standing or walking)
 and still at the pace they were (SLOW / RUN). If they all died, the game freezes and SQUAD LOST
 shows over the camera feed: REGROUP brings the whole squad back, all four at full health, in the sector where it
@@ -73,7 +73,7 @@ SEAL welds a door shut: it doesn't open for hostiles or the squad, so it's the w
 of the colony. Hostiles plan around sealed doors, and so do the soldiers' own moves (patrols, inspections,
 retreats, panic, pursuit, spreading out). On a direct order (`goto`, or a direction, the pad included) a soldier
 plans straight through a sealed door instead, and stops in front of it, reporting it once ("stopped at sealed door
-D3 … order unseal to cut through"); once it's cut open they carry on by themselves. UNSEAL cuts through the weld (15 s; the seam shrinks back down
+D3 … order unseal to cut through"); once it's cut open they carry on by themselves. UNSEAL cuts through the weld (12 s; the seam shrinks back down
 under the same sparks) and the door works normally again, for everyone. The weld is gradual both ways: a half-cut
 door is still sealed and can be welded back up from where it was.
 It's one soldier's job: from the console, the one on camera if they're among the ticked, else the first group
@@ -110,7 +110,7 @@ Soldiers decide for themselves about 10 times a second (`behavior.js`), in three
 
 Orders (`order <who> <order> [argument]`, who = `1-4`, a name, `alpha`/`bravo`, `all` or `1,3`):
 
-- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `alert` (stop and look all around for 5 s, then carry on; followers stay in their group) · `inspect [room]` (walk to a few spots across the room, by default the one they're in or the nearest, look around at each, report and hold) · `retreat [room]` · `getout` (each runs to the nearest corridor, on their own, and holds) · `follow <unit>` · `seal [door]` (weld a door shut: `D3`, a room, `x y` or the nearest; one soldier, 20 s) · `unseal [door]` (cut it open again; also `unweld`, `cut`; 15 s) · `continue`
+- **Tasks**: `patrol` (freely) · `patrol <room>` · `goto <room>` / `goto <x> <y>` · `north|south|east|west` (as far as possible) · `hold` · `alert` (stop and look all around for 5 s, then carry on; followers stay in their group) · `inspect [room]` (walk to a few spots across the room, by default the one they're in or the nearest, look around at each, report and hold) · `retreat [room]` · `getout` (each runs to the nearest corridor, on their own, and holds) · `follow <unit>` · `seal [door]` (weld a door shut: `D3`, a room, `x y` or the nearest; one soldier, 16 s) · `unseal [door]` (cut it open again; also `unweld`, `cut`; 12 s) · `continue`
 - **Squad shape**: `together` (regroup behind the lowest-numbered unit) · `split` (ALPHA = 1+2, BRAVO = 3+4) · `spread` (fan out across the room and act independently)
 - **Standing orders**: `pace slow|normal|fast` · `fire free|hold` · `contact engage|hold|retreat` (what to do on seeing a hostile) · `pursue on|off` · `watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>` · `reset`
 
@@ -157,17 +157,22 @@ nearest hostile is, ducts included, hostiles in view) and plays and mutes with t
 
 The player talks to the whole squad and names a soldier in the message to address one ("Drake, hold there").
 
-The console works without the agent too. The four big buttons beside the monitor pick whose helmet camera is
-on screen and show each soldier's health, HOLD / SLOW / RUN and who they follow. Under the biomonitor, a chip per
+The console works without the agent too. The four big buttons left of the monitor pick whose helmet camera is
+on screen and show each soldier's health, HOLD / SLOW / RUN and who they follow. Under the tactical map, a chip per
 soldier ticks them for orders (the box in the SQUAD title ticks or unticks them all); the order buttons then apply
-to every ticked soldier (with none ticked, to the one on camera): HOLD / SLOW / RUN (one at a time, lit while all
-of them are in that mode, whoever gave the order; pressing the lit one goes back to normal pace, and letting go of
-HOLD they carry on, rejoining their group if they were following someone), ALERT, OUT OF THERE (each one stops
-following anyone and runs to the nearest corridor, spread over different tiles, then holds), SEAL/UNSEAL DOOR, a
-FOLLOW selector, and a direction pad that sends them as far as possible north, south, east or west (the centre is
-HOLD). INSPECT, RETREAT, TOGETHER and SPREAD have no button but the agent can still order them. Each order shows in
+to every ticked soldier (with none ticked, to the one on camera): SLOW / RUN (one at a time, lit while all of them
+are in that mode, whoever gave the order; pressing the lit one goes back to normal pace), ALERT, SEAL/UNSEAL DOOR,
+a FOLLOW selector, a look pad over the top-right corner of the camera (where they look), and the move pad on the
+tactical map: as far as possible north, south, east or west, or one leg that way; its centre is HOLD (pressed
+again, they carry on, rejoining their group if they were following someone). OUT OF THERE, INSPECT, RETREAT, TOGETHER and SPREAD have no button but the agent can still order them. Each order shows in
 the comms log as a CONTROL message (e.g. `CONTROL: FROST, HUDSON: HEAD NORTH`)
 and is reported to the agent.
+
+With no agent linked, typed orders in the comms box still work (`textorders.js`): plain keyword rules turn the
+text into the same game orders ("Frost, go east", "everyone regroup", "Vasquez seal D3", "Hudson check the
+medlab", "run to the exit", "hold fire", "look north-east", "Drake follow Frost", "step west", "carry on"). With
+nobody named, the order goes to the ticked soldiers, or the one on camera; each soldier told answers on the radio.
+To drop it, delete `textorders.js` and its `<script>` line in `game.html`.
 
 ## Files
 

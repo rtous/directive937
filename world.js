@@ -9,6 +9,7 @@ const TILE = 2;          // world units per maze tile
 const DEFAULT_WALL_H = 2.6; // ceiling height (a level can have its own: wallHeight)
 const EYE_H = 1.6;
 const TURN_SPEED = 2.6;  // radians / second (walking speed comes from behavior.js)
+const ALERT_TURN = 2.5;  // on ALERT they snap round this many times faster
 
 // ---------- Procedural textures ----------
 function makeTexture(size, draw) {
@@ -808,7 +809,8 @@ function createWorld(width, height, squad, level, carry = null) {
     // Body turns toward the way it walks, or (standing) toward what it watches; the head adds a glance
     const want = walking ? headingFor(MOVES[s.dir]) : s.gaze != null ? s.gaze : s.heading;
     const diff = angleDiff(s.heading, want);
-    s.heading += Math.sign(diff) * Math.min(Math.abs(diff), TURN_SPEED * (running ? 1.6 : 1) * dt);
+    const turnRate = TURN_SPEED * (running ? 1.6 : 1) * (s.task?.kind === "alert" ? ALERT_TURN : 1);
+    s.heading += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt);
     if (walking) {
       s.restHeading = headingFor(MOVES[s.dir]);
       const toGaze = s.gaze != null ? angleDiff(s.heading, s.gaze) : 0;

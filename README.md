@@ -35,11 +35,12 @@ arrives next to the matching access, with the health and energy they had (crossi
 and still at the pace they were (SLOW / RUN). If they all died, the game freezes and SQUAD LOST
 shows over the camera feed: REGROUP brings the whole squad back, all four at full health, in the sector where it
 came into the AREA it's in (the named groups of sectors on the full map: ENTRY CONCOURSE, ENGINEERING DECKS...),
-arriving through the same access; NEW MISSION starts over at the entry. Soldiers lost along the way stay lost
+arriving through the same access; NEW MISSION starts over at the entry. ↻ RESTART AREA in the top bar does the same as REGROUP at any time
+(after a confirmation), as if the whole squad had been lost. Soldiers lost along the way stay lost
 (their camera shows NO SIGNAL) until the squad regroups. The goal: kill THE GIANT in THE NEST, sector H1. That wins the mission: the game freezes and MISSION COMPLETE shows over the camera feed, with NEW MISSION to start over from the entry.
 
 ⤢ FULL MAP, beside the tactical map, opens the whole complex full screen as a paper map (`papermap.js`): black,
-thin white lines, the sector grid and labels, the accesses and the entry; the only thing laid over it is the
+thin white lines, the sector grid and sector names (no room or area names), the accesses and the entry; the only thing laid over it is the
 sector the squad is in now: no soldiers, hostiles or door states. Esc or ✕ CLOSE closes it.
 
 ## Doors

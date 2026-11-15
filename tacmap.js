@@ -20,7 +20,7 @@ function createTacticalMap(canvas, { colors, onWave = () => {} }) {
   let wave = -1;    // index of the current wave
   let lastR = 0;    // how far the current wave had got last frame (px)
 
-  // redraw once the VT323 font has loaded so the room labels use it
+  // redraw once the VT323 font has loaded so the map's lettering uses it
   if (document.fonts) document.fonts.ready.then(() => { layer = null; });
   fitCanvas(canvas, () => { layer = null; });
 
@@ -59,7 +59,7 @@ function createTacticalMap(canvas, { colors, onWave = () => {} }) {
     }
     g.lineCap = "square";
     // wide soft glow, then a bright core
-    g.strokeStyle = "rgba(101,191,198,0.35)"; // cryo walls; vents and room labels stay green
+    g.strokeStyle = "rgba(101,191,198,0.35)"; // cryo walls; vents stay green
     g.lineWidth = 6;
     g.shadowColor = "#65bfc6";
     g.shadowBlur = 14;
@@ -73,14 +73,6 @@ function createTacticalMap(canvas, { colors, onWave = () => {} }) {
     g.strokeStyle = "rgba(63,227,154,0.55)";
     g.lineWidth = 1;
     for (const [x, y] of world.vents) g.strokeRect(ox + (x + 0.2) * cell, oy + (y + 0.2) * cell, cell * 0.6, cell * 0.6);
-
-    // room labels, like a colony schematic: top-left corner of each room, clear of what's in the middle
-    g.shadowBlur = 6;
-    g.fillStyle = "rgba(63,227,154,0.75)";
-    g.font = `${Math.round(cell * 1.7)}px VT323, monospace`;
-    g.textAlign = "left";
-    g.textBaseline = "top";
-    for (const r of world.rooms) g.fillText(r.label, ox + (r.x + 0.35) * cell, oy + (r.y + 0.25) * cell);
   }
 
   // Each exit (access) outlined, pulsing, with its hatch in the outer wall and the sector it leads to. Once the

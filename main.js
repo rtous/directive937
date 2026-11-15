@@ -773,6 +773,13 @@ function endSector({ win, victory, reason, exit }) {
 // the whole squad again, at full health, in the sector where it came into this area
 $("restart-btn").addEventListener("click", () => startSector(areaEntry.sector, areaEntry.from, null, "regroup"));
 $("new-btn").addEventListener("click", () => startSector(SECTORS.entry));
+// RESTART AREA (top bar): the same as regrouping after losing the whole squad, after a confirmation
+$("restart-area-btn").addEventListener("click", () => {
+  const back = sectorName(...areaEntry.sector);
+  if (confirm(`Restart the area? The whole squad starts again at ${back}, fresh, as if they had all been lost.`)) {
+    startSector(areaEntry.sector, areaEntry.from, null, "regroup");
+  }
+});
 
 // The whole complex, as a paper map (papermap.js)
 const paperMap = createPaperMap($("paper-map"), { currentSector: () => atSector.sector });

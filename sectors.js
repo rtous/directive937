@@ -378,12 +378,14 @@ function generateSector(sx, sy) {
     return dx > 0 ? [r.x + r.w, s.c[1]] : dx < 0 ? [r.x - 1, s.c[1]] : dy > 0 ? [s.c[0], r.y + r.h] : [s.c[0], r.y - 1];
   };
   const corridors = [], doors = [], lights = [], corridorTiles = [];
+  const corridorInMaze = []; // per corridor: part of the maze (needed to reach everything) or an extra link
   const junctionTiles = new Set(slots.filter((s) => s.there && !s.room).map((s) => s.c.join()));
   for (const [a, b, inMaze] of joins) {
     const [p, q] = a.i + a.j < b.i + b.j ? [a, b] : [b, a]; // p west/north of q
     const along = p.j === q.j ? [1, 0] : [0, 1];
     const [x1, y1] = edgeOf(p, along[0], along[1]), [x2, y2] = edgeOf(q, -along[0], -along[1]);
     corridors.push([x1, y1, x2, y2]);
+    corridorInMaze.push(inMaze);
     const tiles = [];
     for (let k = 0; k <= T; k++) {
       const t = [x1 + along[0] * k, y1 + along[1] * k];
@@ -401,6 +403,24 @@ function generateSector(sx, sy) {
     }
     for (let k = 2; k < tiles.length - 1; k += 4) {
       if (!doors.some(([dx, dy]) => dx === tiles[k][0] && dy === tiles[k][1])) lights.push(tiles[k]);
+    }
+  }
+
+  // THE NEST is walled off on its east side: an extra link there (not needed to reach anything) isn't built, so
+  // its corridor, door and lights go; a maze link stays, just without a door
+  const nestRoom = slots.find((o) => o.nest)?.room;
+  if (nestRoom) {
+    const ex = nestRoom.x + nestRoom.w, inNestRows = (y) => y >= nestRoom.y && y < nestRoom.y + nestRoom.h;
+    const c = corridors.findIndex(([x1, y1, x2, y2]) => x1 === ex && y1 === y2 && inNestRows(y1));
+    const onIt = ([x, y]) => c >= 0 && y === corridors[c][1] && x >= corridors[c][0] && x <= corridors[c][2];
+    const dropTiles = (list) => { for (let i = list.length - 1; i >= 0; i--) if (onIt(list[i])) list.splice(i, 1); };
+    if (c >= 0 && !corridorInMaze[c]) {
+      dropTiles(doors); dropTiles(lights); dropTiles(corridorTiles);
+      corridors.splice(c, 1);
+      corridorInMaze.splice(c, 1);
+    } else {
+      const k = doors.findIndex(([x, y]) => x === ex && inNestRows(y));
+      if (k >= 0) doors.splice(k, 1);
     }
   }
 

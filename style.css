@@ -114,6 +114,7 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 }
 .audio-btn.on { color: var(--seegson); }
 .audio-btn:hover { color: var(--hypersleep); }
+.restart-area-btn:hover { color: var(--acid); }
 
 /* ---------- Squad (bottom of the right column): one chip per soldier, then one bar of orders ---------- */
 .squad-panel { flex: none; padding-bottom: 8px; }

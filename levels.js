@@ -9,7 +9,7 @@
 //   id, name        a short id, and the name shown to the player
 //   briefing        one or two sentences on where the squad is now (comms log)
 //   width, height   grid size; everything outside the rooms and corridors is solid wall
-//   rooms           named areas. label: short name on the map. aliases: other words the player may type for it.
+//   rooms           named areas. label: short name (typed orders accept it). aliases: other words the player may type for it.
 //                   x, y, w, h: the interior. light: ceiling light colour (the feed is grayscale; only red shows).
 //                   desc: what it looks like (flavour text). walls: wall style (walls.js), default corridor-like.
 //   corridors       open runs joining the rooms

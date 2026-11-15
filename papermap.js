@@ -12,7 +12,7 @@ const PAPER = {
   ink: "rgba(145, 233, 233,0.85)",          // hypersleep: walls, accesses, the entry
   faint: "rgba(204,213,212,0.16)",        // the sector grid
   label: "rgba(145, 233, 233,0.7)",         // column letters, row numbers
-  muted: "rgba(122,128,127,0.85)",        // synthetic: room labels, sector names
+  muted: "rgba(122,128,127,0.85)",        // synthetic: sector names
   area: "rgba(101,191,198,0.75)",         // cryo: the named areas
   duct: "rgba(5,182,105,0.7)",            // seegson: the ventilation ducts above the ceilings, and their openings
   here: "rgba(240,120,38,0.9)",           // acid: the sector the squad is in
@@ -63,12 +63,9 @@ function createPaperMap(overlay, { currentSector }) {
 
     // named areas spanning several sectors, in a Cryo pencil, just inside their borders (decoration)
     ctx.save();
-    ctx.strokeStyle = ctx.fillStyle = PAPER.area;
+    ctx.strokeStyle = PAPER.area;
     ctx.lineWidth = 1.2;
     ctx.setLineDash([10, 5]);
-    ctx.font = "12px VT323, monospace";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
     const inset = 5;
     for (const area of MAP_AREAS) {
       const cells = new Set();
@@ -86,9 +83,6 @@ function createPaperMap(overlay, { currentSector }) {
         if (!has(x + 1, y)) { ctx.moveTo(x1 - inset, y0 + inT); ctx.lineTo(x1 - inset, y1 - inB); }
       }
       ctx.stroke();
-      // the name, along the top of its first rectangle
-      const [lx, ly] = area.cells[0];
-      ctx.fillText(area.name, X(lx, 0) + inset + 4, Y(ly, 0) + inset + 14);
     }
     ctx.restore();
 
@@ -164,17 +158,6 @@ function createPaperMap(overlay, { currentSector }) {
       }
     }
 
-    // room labels, small, where there's room for them
-    if (t >= 2.2) {
-      ctx.fillStyle = PAPER.muted;
-      ctx.font = `${Math.max(7, Math.round(t * 2.2))}px VT323, monospace`;
-      for (let sy = 0; sy < N; sy++) for (let sx = 0; sx < N; sx++) {
-        for (const r of generateSector(sx, sy).rooms) {
-          if (r.w < 4 || r.h < 3) continue; // not the access vestibules
-          ctx.fillText(r.label, X(sx, r.x + r.w / 2), Y(sy, r.y + r.h / 2));
-        }
-      }
-    }
     // sector names, in each top-left corner
     ctx.fillStyle = PAPER.muted;
     ctx.font = "11px VT323, monospace";

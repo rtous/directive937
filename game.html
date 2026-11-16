@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="scifi"><!-- scifi: the blue filter and glow of scifi.css (open with ?plain to see without) -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,6 +8,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=VT323&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="scifi.css">
+  <script>if (/[?&]plain\b/.test(location.search)) document.documentElement.classList.remove("scifi");</script>
 </head>
 <body>
   <div class="console">
@@ -21,6 +23,7 @@
         <span class="dim">SHIP TIME</span> <span id="ship-clock">--:--:--</span>
         <button class="status-pill audio-btn on" id="audio-btn" title="Toggle sound">AUDIO ON</button>
         <button class="status-pill audio-btn restart-area-btn" id="restart-area-btn" type="button" title="Start this area again: the whole squad, fresh, where it came into the area (as if they had all been lost)">↻ RESTART AREA</button>
+        <button class="status-pill audio-btn exit-btn" id="exit-btn" type="button" title="Leave the mission and go back to the landing page">⏻ EXIT</button>
       </div>
     </header>
 

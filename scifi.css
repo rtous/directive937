@@ -1,0 +1,62 @@
+/*
+ * SCI-FI LOOK: a blue filter over the whole console and glow on lines, text and buttons.
+ * Everything here only applies while <html> has the class "scifi" (game.html). To compare, open the game with
+ * ?plain in the URL. To drop it for good: remove the class and the <link> to this file from game.html, and delete it.
+ * Palette colors only: Cryo blue #65bfc6 (101,191,198) for the tint and the glow.
+ */
+
+/* ---- the blue filter: a tint over everything, brighter in the middle, plus faint scanlines ---- */
+html.scifi body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(101, 191, 198, 0.10), rgba(101, 191, 198, 0.03) 55%, rgba(2, 9, 11, 0.35) 100%),
+    repeating-linear-gradient(to bottom, rgba(101, 191, 198, 0.035) 0 1px, transparent 1px 3px);
+  mix-blend-mode: screen;
+}
+html.scifi body::before { /* dark corners: a tube-like vignette */
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  box-shadow: inset 0 0 140px rgba(2, 9, 11, 0.85);
+}
+
+/* ---- panels: glowing frames and corner notches ---- */
+html.scifi .panel {
+  border-color: rgba(101, 191, 198, 0.45);
+  box-shadow:
+    0 0 10px rgba(101, 191, 198, 0.18),
+    inset 0 0 24px rgba(101, 191, 198, 0.07),
+    inset 0 0 20px rgba(2, 9, 11, 0.5);
+}
+html.scifi .panel::before { filter: drop-shadow(0 0 4px rgba(101, 191, 198, 0.9)); }
+
+/* ---- text: a soft glow in its own color ---- */
+html.scifi body { text-shadow: 0 0 6px rgba(145, 233, 233, 0.35); }
+html.scifi h2 { text-shadow: 0 0 8px rgba(240, 120, 38, 0.55); border-bottom-color: rgba(101, 191, 198, 0.4); }
+html.scifi .brand { text-shadow: 0 0 12px rgba(5, 182, 105, 0.7); }
+html.scifi #ship-clock { text-shadow: 0 0 8px rgba(145, 233, 233, 0.8); }
+
+/* ---- buttons: glow around them, stronger on hover and when on ---- */
+html.scifi button:not(:disabled),
+html.scifi select:not(:disabled) {
+  box-shadow: 0 0 6px rgba(101, 191, 198, 0.35);
+  transition: box-shadow 0.15s, filter 0.15s;
+}
+html.scifi button:not(:disabled):hover,
+html.scifi select:not(:disabled):hover { box-shadow: 0 0 12px rgba(101, 191, 198, 0.7); }
+html.scifi button.on,
+html.scifi .cam-select button.active { box-shadow: 0 0 12px rgba(5, 182, 105, 0.75); }
+html.scifi .map-seal.near:not(:disabled) { box-shadow: 0 0 16px rgba(101, 191, 198, 1); }
+
+/* ---- screens: the tactical map and the monitors glow a little ---- */
+html.scifi #map { filter: drop-shadow(0 0 6px rgba(101, 191, 198, 0.35)); }
+html.scifi .crt-bezel {
+  box-shadow: 0 0 18px rgba(101, 191, 198, 0.22),
+    inset 0 2px 4px rgba(255, 255, 255, 0.06), inset 0 -4px 10px rgba(2, 9, 11, 0.8); /* (its own shading, kept) */
+}

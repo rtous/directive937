@@ -789,6 +789,10 @@ $("restart-area-btn").addEventListener("click", () => {
     startSector(areaEntry.sector, areaEntry.from, null, "regroup");
   }
 });
+// EXIT (top bar): back to the landing page, after a confirmation (the mission in progress is lost)
+$("exit-btn").addEventListener("click", () => {
+  if (confirm("Exit to the landing page? The mission in progress will be lost.")) location.href = "index.html";
+});
 
 // The whole complex, as a paper map (papermap.js)
 const paperMap = createPaperMap($("paper-map"), { currentSector: () => atSector.sector });

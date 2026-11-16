@@ -33,15 +33,15 @@
           <canvas id="map" width="440" height="330"></canvas>
           <div class="crt-scanlines"></div>
           <div class="crt-vignette"></div>
-          <div class="map-dpad" id="move-pad" title="Letters: as far as possible that way. Arrows: to the next room, junction, dead end or sealed door that way">
+          <div class="map-dpad" id="move-pad" title="Letters: as far as possible that way. Arrows: to the next room, corner, junction, dead end or sealed door that way">
             <button type="button" data-act="north" class="far-n" title="Head north, as far as possible">N</button>
-            <button type="button" data-act="step-north" class="step-n" title="Move north: to the next room, junction, dead end or sealed door">▲</button>
+            <button type="button" data-act="step-north" class="step-n" title="Move north: to the next room, corner, junction, dead end or sealed door">▲</button>
             <button type="button" data-act="west" class="far-w" title="Head west, as far as possible">W</button>
-            <button type="button" data-act="step-west" class="step-w" title="Move west: to the next room, junction, dead end or sealed door">◀</button>
-            <button type="button" data-act="hold" class="mid" title="Hold (press again to carry on)">■</button>
-            <button type="button" data-act="step-east" class="step-e" title="Move east: to the next room, junction, dead end or sealed door">▶</button>
+            <button type="button" data-act="step-west" class="step-w" title="Move west: to the next room, corner, junction, dead end or sealed door">◀</button>
+            <button type="button" data-act="hold" class="mid" title="Hold (press again to carry on)">HOLD</button>
+            <button type="button" data-act="step-east" class="step-e" title="Move east: to the next room, corner, junction, dead end or sealed door">▶</button>
             <button type="button" data-act="east" class="far-e" title="Head east, as far as possible">E</button>
-            <button type="button" data-act="step-south" class="step-s" title="Move south: to the next room, junction, dead end or sealed door">▼</button>
+            <button type="button" data-act="step-south" class="step-s" title="Move south: to the next room, corner, junction, dead end or sealed door">▼</button>
             <button type="button" data-act="south" class="far-s" title="Head south, as far as possible">S</button>
           </div>
           <button type="button" class="map-seal" id="seal-btn" data-act="seal" title="Weld the nearest door shut (16 s), or cut it open again if it's sealed (12 s). One soldier does it: the one on camera if ticked, else a group leader">SEAL/UNSEAL DOOR</button>

@@ -34,8 +34,9 @@ const BEHAVIOR = {
   panic: 5,          // danger score that makes a soldier run...
   safe: 2,           // ...and the score that counts as safe again
   hp: { soldier: 100, alien: 100 }, // health everyone starts with
-  energy: { drain: 4, rest: 1.0, walk: 0.5, recover: 30 }, // stamina (0-100): spent per second running, regained (slowly)
-                     // per second standing / walking; at 0 a soldier can't run until it's back to `recover`.
+  energy: { drain: 4, walk: 1, slow: 2.5, rest: 6, recover: 30 }, // stamina (0-100): spent per second running,
+                     // regained per second walking, walking slow, standing still; at 0 a soldier can't run until
+                     // it's back to `recover`.
                      // It carries over from one sector to the next (world.js: carry)
   damage: 10,        // health one rifle round takes off
   thinkEvery: 0.1,   // seconds between decisions
@@ -107,7 +108,7 @@ const SHORTCUTS = {
 };
 
 const ORDER_HELP = "Tasks: patrol [room], goto <room | x y>, north/south/east/west (as far as possible), " +
-  "step north/south/east/west (to the next room, junction, dead end or sealed door), hold, alert, ceiling, inspect [room], retreat [room], " +
+  "step north/south/east/west (to the next room, corner, junction, dead end or sealed door), hold, alert, ceiling, inspect [room], retreat [room], " +
   "follow <unit>, getout, seal [door: D1.. | room | x y | nearest], unseal [door], continue. Squad: together, split, spread. Standing: pace slow|normal|fast, fire free|hold, " +
   "contact engage|hold|retreat, pursue on|off, watch auto|front|rear|<direction, e.g. north-east>|center|<room>|<x y>, reset.";
 
@@ -394,9 +395,9 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, vents = [], 
   }
 
   // One leg in a compass direction, to the next place worth stopping at. From a room: out through its doorway on
-  // that side (the one nearest the soldier) and along the corridor. Along a corridor (bends followed): it ends at
-  // a junction or a side opening (where to go next is a new decision), a dead end, in front of a sealed door, or
-  // in the next room, at its centre. Returns { tile, room, why, door } or { error }.
+  // that side (the one nearest the soldier) and along the corridor. Along a corridor: it ends at a corner (it
+  // doesn't turn the leg off the ordered direction), a junction or a side opening (where to go next is a new
+  // decision), a dead end, in front of a sealed door, or in the next room, at its centre. Returns { tile, room, why, door } or { error }.
   function stepTarget(s, d) {
     const [fx, fy] = here(s);
     const dir = DIR_NAMES[d];
@@ -421,7 +422,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, vents = [], 
         if (!opens.length) return first ? { error: `The corridor doesn't go ${dir} from here.` } : { tile: p, why: "dead end" };
         if (!opens.includes(k)) {
           if (first) return { error: `The corridor doesn't go ${dir} from here.` };
-          k = opens[0]; // a bend: follow it
+          return { tile: p, why: "corner" }; // it turns: the order said ${dir}, so stop here
         }
       }
       const next = step(p, k);
@@ -1387,7 +1388,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, vents = [], 
       const left = Math.ceil(door.seal * DOOR.cutTime);
       return ok(`Cutting door ${door.id} open (${door.where}): about ${left} seconds of cutting once there.`);
     },
-    // one leg in a direction: to the next room's centre, junction, dead end or sealed door (stepTarget)
+    // one leg in a direction: to the next room's centre, corner, junction, dead end or sealed door (stepTarget)
     step(s, arg) {
       const d = DIR_NAMES.findIndex((n) => n === arg || n[0] === arg);
       if (d < 0) return bad("step needs a direction: north, south, east or west.");
@@ -1402,6 +1403,7 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, vents = [], 
       return ok({
         room: `Moving ${dir} to ${t.room?.name}${t.room && inExit(...t.tile) ? ": out through it" : ""}.`,
         junction: `Moving ${dir} to the junction at ${at}.`,
+        corner: `Moving ${dir} to the corner at ${at}, where the corridor turns.`,
         "dead end": `Moving ${dir} to the end of the corridor at ${at}.`,
         sealed: `Moving ${dir} up to sealed door ${t.door?.id}.`,
         closed: `Moving ${dir} up to the ${t.room?.name} (closed: the squad is leaving another way).`,

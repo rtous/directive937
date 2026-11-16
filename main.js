@@ -9,7 +9,7 @@
 // female: which death scream plays (sounds/shouting_female.wav or shouting_male.wav)
 const SQUAD = [
   { id: 1, name: "SGT. R. FROST", callsign: "FROST", color: "#ffa040" },
-  { id: 2, name: "CPL. J. VASQUEZ", callsign: "VASQUEZ", color: "#4fd8ff", female: true },
+  { id: 2, name: "CPL. J. VASQUEZ", callsign: "VASQUEZ", color: "#65bfc6", female: true },
   { id: 3, name: "PVT. W. HUDSON", callsign: "HUDSON", color: "#05b669" },
   { id: 4, name: "PVT. M. DRAKE", callsign: "DRAKE", color: "#EEF2A0" },
 ];
@@ -540,11 +540,20 @@ function doorJob(idx) {
 }
 const sealBtn = $("seal-btn");
 function updateSealButton(idx) {
-  const { door, job } = idx.length ? doorJob(idx) : { door: null, job: "seal" };
+  const { i, door, job } = idx.length ? doorJob(idx) : { i: -1, door: null, job: "seal" };
   sealBtn.title = door ? `${job === "seal" ? "Weld" : "Cut open"} door ${door.id} (${door.where}), the nearest one: ` +
     `${job === "seal" ? "16" : "12"} s, one soldier (the one on camera if ticked, else a group leader)` : "No door within reach";
   if (!door) sealBtn.disabled = true;
+  // blinks while that soldier stands close to a sealed door (and isn't already cutting it)
+  let near = false;
+  if (door && job === "unseal" && !sealBtn.disabled) {
+    const s = world.soldiers[i];
+    const [sx, sy] = unitPos(s);
+    near = Math.hypot(door.x - sx, door.y - sy) <= SEAL_NEAR && !(s.task.kind === "seal" && s.task.door === door);
+  }
+  sealBtn.classList.toggle("near", near);
 }
+const SEAL_NEAR = 2.5; // tiles
 
 function groupOrder(act) {
   if (!world || world.mission.over) return;
@@ -846,6 +855,7 @@ function frame(now) {
   if (now - lastQuarter > 250) {
     lastQuarter = now;
     sound.setTension(gameTension());
+    updateSelection(); // keeps SEAL/UNSEAL (and its blink) in step with the soldier's position
   }
   if (now - lastSecond > 1000) {
     lastSecond = now;

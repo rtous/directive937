@@ -749,11 +749,17 @@ function createWorld(width, height, squad, level, carry = null) {
       s.walked += s.speed * dt;
     }
     s.moving = moving;
-    // Energy: running spends it, standing or walking brings it back
+    // Energy: running spends it; walking brings it back, walking slow faster, standing still much faster
     const E = BEHAVIOR.energy;
     if (moving && running) s.energy = Math.max(0, s.energy - E.drain * dt);
-    else s.energy = Math.min(100, s.energy + (moving ? E.walk : E.rest) * dt);
-    if (s.energy <= 0) s.exhausted = true;
+    else {
+      const gain = !moving ? E.rest : s.speed <= BEHAVIOR.pace.slow + 0.01 ? E.slow : E.walk;
+      s.energy = Math.min(100, s.energy + gain * dt);
+    }
+    if (s.energy <= 0 && !s.exhausted) {
+      s.exhausted = true;
+      if (s.orders.pace === "fast") s.orders.pace = "normal"; // out of breath: back to normal pace (RUN goes off)
+    }
     else if (s.exhausted && s.energy >= E.recover) s.exhausted = false;
 
     const [tx, ty] = unitPos(s);

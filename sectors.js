@@ -276,6 +276,22 @@ function hostileSchedule(sx, sy) {
 const SLOT = 11, MARGIN = 4;
 const GIANT_SPACE = 2; // tiles around the giant's centre that its body fills (nobody walks there): a 5x5 square
 const slotCentre = (i) => MARGIN + SLOT * i + SLOT / 2 | 0; // 9, 20, 31
+// THE NEST is bigger than a slot (room to get in and spread out around the giant before the fight), so in the
+// boss sector the rooms of the slots around it keep clear of it: its wall, then a tile of rock, then theirs.
+const NEST_SIZE = 15;
+// The tiles a slot's room may cover: [lo, hi) per axis
+function slotBox(s, isBoss) {
+  const lo = [MARGIN + SLOT * s.i + 1, MARGIN + SLOT * s.j + 1], hi = [lo[0] + SLOT - 2, lo[1] + SLOT - 2];
+  if (!isBoss) return [lo, hi];
+  const n0 = slotCentre(1) - (NEST_SIZE >> 1), n1 = n0 + NEST_SIZE; // the nest's tiles: [n0, n1) both ways
+  if (s.i === 1 && s.j === 1) return [[n0, n0], [n1, n1]];
+  for (const a of [0, 1]) {
+    const k = a ? s.j : s.i;
+    if (k === 0) hi[a] = Math.min(hi[a], n0 - 2);
+    if (k === 2) lo[a] = Math.max(lo[a], n1 + 2);
+  }
+  return [lo, hi];
+}
 const EDGE_SLOT = { north: [1, 0], south: [1, 2], east: [2, 1], west: [0, 1] }; // the slot each access leads into
 const DENSITY = { // how many other slots are there, how likely each is a room, how big rooms get
   sparse: { extra: [0, 2], room: 0.3, size: [3, 7] },
@@ -341,10 +357,11 @@ function generateSector(sx, sy) {
     const nest = isBoss && s.i === 1 && s.j === 1;
     s.nest = nest;
     if (!nest && rnd() >= D.room) continue; // a junction: the corridors just meet at the slot's centre
-    const o = [MARGIN + SLOT * s.i, MARGIN + SLOT * s.j], c = s.c;
-    const w = nest ? 9 : between(...D.size), h = nest ? 9 : between(...D.size);
-    const x = between(Math.max(o[0] + 1, c[0] - w + 1), Math.min(o[0] + SLOT - 1 - w, c[0]));
-    const y = between(Math.max(o[1] + 1, c[1] - h + 1), Math.min(o[1] + SLOT - 1 - h, c[1]));
+    const [lo, hi] = slotBox(s, isBoss), c = s.c;
+    const w = nest ? NEST_SIZE : Math.min(between(...D.size), hi[0] - lo[0]);
+    const h = nest ? NEST_SIZE : Math.min(between(...D.size), hi[1] - lo[1]);
+    const x = between(Math.max(lo[0], c[0] - w + 1), Math.min(hi[0] - w, c[0]));
+    const y = between(Math.max(lo[1], c[1] - h + 1), Math.min(hi[1] - h, c[1]));
     const [kind, label, aliases, [base, features], light, desc] = nest ? NEST : kinds[rooms.length];
     s.room = { name: kind, label, aliases, x, y, w, h, light, desc, walls: { base, features } };
     rooms.push(s.room);
@@ -352,12 +369,15 @@ function generateSector(sx, sy) {
 
   // ---- which slots are joined: a maze over those that are there, plus extra links ----
   const joins = []; // [slotA, slotB, inMaze]
+  // THE NEST is walled off on its east and west sides: only north and south lead in. The boss sector has every
+  // slot, so the rest still connects around it.
+  const canJoin = (a, b) => !((a.nest || b.nest) && a.j === b.j);
   {
     const start = slots.find((s) => s.there);
     const seen = new Set([start]), stack = [start];
     while (stack.length) {
       const s = stack[stack.length - 1];
-      const next = neighbours(s).filter((n) => n.there && !seen.has(n));
+      const next = neighbours(s).filter((n) => n.there && !seen.has(n) && canJoin(s, n));
       if (!next.length) { stack.pop(); continue; }
       const n = pick(next);
       joins.push([s, n, true]);
@@ -365,7 +385,7 @@ function generateSector(sx, sy) {
       stack.push(n);
     }
     for (const s of slots) for (const n of neighbours(s)) {
-      if (!s.there || !n.there || n.i + n.j < s.i + s.j) continue;
+      if (!s.there || !n.there || n.i + n.j < s.i + s.j || !canJoin(s, n)) continue;
       if (!joins.some(([a, b]) => (a === s && b === n) || (a === n && b === s)) && rnd() < 0.9) joins.push([s, n, false]);
     }
   }
@@ -378,14 +398,12 @@ function generateSector(sx, sy) {
     return dx > 0 ? [r.x + r.w, s.c[1]] : dx < 0 ? [r.x - 1, s.c[1]] : dy > 0 ? [s.c[0], r.y + r.h] : [s.c[0], r.y - 1];
   };
   const corridors = [], doors = [], lights = [], corridorTiles = [];
-  const corridorInMaze = []; // per corridor: part of the maze (needed to reach everything) or an extra link
   const junctionTiles = new Set(slots.filter((s) => s.there && !s.room).map((s) => s.c.join()));
   for (const [a, b, inMaze] of joins) {
     const [p, q] = a.i + a.j < b.i + b.j ? [a, b] : [b, a]; // p west/north of q
     const along = p.j === q.j ? [1, 0] : [0, 1];
     const [x1, y1] = edgeOf(p, along[0], along[1]), [x2, y2] = edgeOf(q, -along[0], -along[1]);
     corridors.push([x1, y1, x2, y2]);
-    corridorInMaze.push(inMaze);
     const tiles = [];
     for (let k = 0; k <= T; k++) {
       const t = [x1 + along[0] * k, y1 + along[1] * k];
@@ -403,24 +421,6 @@ function generateSector(sx, sy) {
     }
     for (let k = 2; k < tiles.length - 1; k += 4) {
       if (!doors.some(([dx, dy]) => dx === tiles[k][0] && dy === tiles[k][1])) lights.push(tiles[k]);
-    }
-  }
-
-  // THE NEST is walled off on its east side: an extra link there (not needed to reach anything) isn't built, so
-  // its corridor, door and lights go; a maze link stays, just without a door
-  const nestRoom = slots.find((o) => o.nest)?.room;
-  if (nestRoom) {
-    const ex = nestRoom.x + nestRoom.w, inNestRows = (y) => y >= nestRoom.y && y < nestRoom.y + nestRoom.h;
-    const c = corridors.findIndex(([x1, y1, x2, y2]) => x1 === ex && y1 === y2 && inNestRows(y1));
-    const onIt = ([x, y]) => c >= 0 && y === corridors[c][1] && x >= corridors[c][0] && x <= corridors[c][2];
-    const dropTiles = (list) => { for (let i = list.length - 1; i >= 0; i--) if (onIt(list[i])) list.splice(i, 1); };
-    if (c >= 0 && !corridorInMaze[c]) {
-      dropTiles(doors); dropTiles(lights); dropTiles(corridorTiles);
-      corridors.splice(c, 1);
-      corridorInMaze.splice(c, 1);
-    } else {
-      const k = doors.findIndex(([x, y]) => x === ex && inNestRows(y));
-      if (k >= 0) doors.splice(k, 1);
     }
   }
 

@@ -193,7 +193,8 @@ function createSquadBrain({ nav, fogAt, soldiers: everyone, aliens, vents = [], 
       if (!clearLine(px, py, a.x, a.y)) continue;
       seen.push({ alien: a, d, angle, dir: compass(a.x - px, a.y - py) });
     }
-    seen.sort((p, q) => p.d - q.d);
+    // nearest first, but THE GIANT last: it never moves, so the hostiles coming at them go first (seen[0] is the target)
+    seen.sort((p, q) => (p.alien.giant ? 1 : 0) - (q.alien.giant ? 1 : 0) || p.d - q.d);
 
     const R = BEHAVIOR.report;
     // a hostile dropping out of a ceiling vent in view: called in once per hostile

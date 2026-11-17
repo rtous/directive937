@@ -427,6 +427,11 @@ const targetIdx = () => {
   const idx = pickedIdx();
   return idx.length ? idx : inPlay(selected) ? [selected] : [];
 };
+// Once an order has gone out, the ticks are cleared (the next order goes to the one on camera, or a new pick)
+function clearPicks() {
+  picks.forEach((p) => { p.checked = false; });
+  updateSelection();
+}
 // the mode every one of these soldiers is in, or null if they differ
 const sharedMode = (idx) => {
   const modes = new Set(idx.map((i) => modeOf(world.soldiers[i])));
@@ -576,6 +581,7 @@ function groupOrder(act) {
   const live = SQUAD.filter((u, i) => inPlay(i)).length;
   const who = idx.length === live && live > 1 ? "ALL" : idx.map((i) => SQUAD[i].callsign).join(", ");
   reportConsole(who, what);
+  clearPicks();
   // anyone who can't do it says why (e.g. WATCH CEILING with no vent close by)
   for (const r of results || []) {
     const u = !r.ok && SQUAD.find((x) => x.id === r.unit);
@@ -603,7 +609,9 @@ followSel.innerHTML = `<option value="-">FOLLOW…</option><option value="">FOLL
 followSel.addEventListener("change", () => { // a one-shot order: it goes back to its label once used
   const v = followSel.value;
   followSel.value = "-";
-  if (v !== "-") targetIdx().forEach((i) => { if (String(i) !== v) setLeader(i, v); });
+  if (v === "-") return;
+  targetIdx().forEach((i) => { if (String(i) !== v) setLeader(i, v); });
+  clearPicks();
 });
 selAll.addEventListener("change", () => {
   picks.forEach((p) => { if (!p.disabled) p.checked = selAll.checked; });
@@ -794,6 +802,22 @@ $("exit-btn").addEventListener("click", () => {
   if (confirm("Exit to the landing page? The mission in progress will be lost.")) location.href = "index.html";
 });
 
+// PAUSE (top bar, or the P key when not typing): the world stands still and the mission clock stops
+let paused = false;
+function setPaused(on) {
+  paused = on;
+  const b = $("pause-btn");
+  b.classList.toggle("on", on);
+  b.textContent = on ? "▶ RESUME" : "❚❚ PAUSE";
+}
+$("pause-btn").addEventListener("click", () => setPaused(!paused));
+window.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (e.key.toLowerCase() !== "p" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  setPaused(!paused);
+});
+
 // The whole complex, as a paper map (papermap.js)
 const paperMap = createPaperMap($("paper-map"), { currentSector: () => atSector.sector });
 $("map-btn").addEventListener("click", () => paperMap.open());
@@ -842,7 +866,8 @@ function frame(now) {
   lastFrame = now;
 
   // clamp so a backgrounded tab doesn't teleport the soldiers
-  if (world && !world.mission.over) world.update(Math.min(dt, 100) / 1000);
+  if (paused) { if (levelEnd == null) levelStart += dt; } // the mission clock stands still too
+  else if (world && !world.mission.over) world.update(Math.min(dt, 100) / 1000);
   if (now - lastFeed > 33) { // ~30 fps for the analog feed
     lastFeed = now;
     renderFeed(now);

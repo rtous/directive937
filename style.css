@@ -679,6 +679,37 @@ h2 { /* panel titles: Acid Blood, like paperocalypse's section titles */
 .mission-end .end-buttons { display: flex; gap: 0.6em; }
 .mission-end button[hidden] { display: none; }
 
+/* ---------- Loading screen (while the 3D models download) ---------- */
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 90; /* under .screen-crt */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--xeno);
+  text-shadow: 0 0 3px rgba(145, 233, 233, 0.18);
+}
+.loading[hidden] { display: none; }
+.loading-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8em;
+  width: min(420px, calc(100% - 32px));
+  padding: 1.4em 1.6em;
+  border: 1px solid var(--cryo);
+  box-shadow: 0 0 12px rgba(101, 191, 198, 0.25);
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+.loading-box b { color: var(--acid); font-size: 1.3em; animation: loading-blink 1.2s steps(2, start) infinite; }
+.loading-box .dim { color: var(--synthetic); font-size: 0.85em; }
+.loading-bar { width: 100%; height: 10px; border: 1px solid var(--line); padding: 1px; }
+.loading-bar i { display: block; height: 100%; width: 0; background: var(--seegson); box-shadow: 0 0 6px var(--seegson); transition: width 0.2s linear; }
+#loading-pct { color: var(--seegson); font-family: var(--crt-font); font-size: 1.6em; }
+@keyframes loading-blink { to { visibility: hidden; } }
+
 /* ---------- The whole screen as a CRT ----------
  * A layer over everything: scanlines, darker edges, a faint glare at the top, and a phosphor glow on the text.
  * No flicker, rolling or jitter (those are only for the camera monitor). */

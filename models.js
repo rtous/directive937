@@ -40,11 +40,57 @@ const modelsAvailable = () => !!(window.THREE && THREE.FBXLoader && THREE.Skelet
 
 // ---------- Loading (each file once) ----------
 const fbxCache = new Map();
+const fbxBytes = new Map(); // url -> { loaded, total } as it downloads (for the loading screen)
 function loadFBX(url) {
   if (!fbxCache.has(url)) {
-    fbxCache.set(url, new Promise((resolve, reject) => new THREE.FBXLoader().load(encodeURI(url), resolve, undefined, reject)));
+    const bytes = { loaded: 0, total: 0 };
+    fbxBytes.set(url, bytes);
+    fbxCache.set(url, new Promise((resolve, reject) => new THREE.FBXLoader().load(encodeURI(url), (m) => {
+      bytes.done = true;
+      resolve(m);
+    }, (e) => {
+      bytes.loaded = e.loaded;
+      if (e.lengthComputable) bytes.total = e.total;
+    }, (err) => {
+      bytes.done = true;
+      reject(err);
+    })));
   }
   return fbxCache.get(url);
+}
+// Textures of the hostiles, kept so the loading screen can wait for them too
+const texturePromises = [];
+function loadTexture(loader, url) {
+  let done;
+  texturePromises.push(new Promise((r) => (done = r)));
+  return loader.load(url, done, undefined, done);
+}
+
+// Load and prepare every model (and the hostiles' textures) before the first world is built. onProgress(0..1)
+// as the files come in. Never rejects: a model that fails is left to the placeholder, as before.
+async function preloadModels(onProgress = () => {}) {
+  if (!modelsAvailable()) return;
+  const all = Promise.allSettled([
+    soldierClips(), ...Object.keys(CHARACTER.models).map(soldierModel), alienTemplate(), eggTemplate(),
+  ]);
+  let finished = false;
+  all.then(() => (finished = true));
+  const tick = () => {
+    if (finished) return;
+    let loaded = 0, total = 0, files = 0, done = 0;
+    for (const b of fbxBytes.values()) {
+      files++;
+      if (b.done) done++;
+      if (b.total) { loaded += Math.min(b.loaded, b.total); total += b.total; }
+    }
+    // bytes if the server says how big the files are, else files done
+    onProgress(total ? loaded / total : files ? done / files : 0);
+    requestAnimationFrame(tick);
+  };
+  tick();
+  await all;
+  await Promise.allSettled(texturePromises);
+  onProgress(1);
 }
 const once = (fn) => { let p = null; return () => (p ??= fn()); };
 
@@ -245,8 +291,8 @@ const alienTemplate = once(async () => {
   grayscale(model, (mat) => {
     const tex = XENO.textures[mat.name.toLowerCase()];
     if (!tex) return;
-    mat.map = texLoader.load(tex[0]);
-    mat.normalMap = texLoader.load(tex[1]);
+    mat.map = loadTexture(texLoader, tex[0]);
+    mat.normalMap = loadTexture(texLoader, tex[1]);
     mat.color.setScalar(XENO.darkness); // darker than its texture: a black, glossy creature
     if (mat.specular) mat.specular.set(0x777777); // wet shine
     if ("shininess" in mat) mat.shininess = 60;
@@ -301,7 +347,7 @@ const eggTemplate = once(async () => {
   const model = await loadFBX(EGG.model);
   const texLoader = new THREE.TextureLoader();
   const tex = new Map(); // each file once
-  const load = (url) => (url ? tex.get(url) || tex.set(url, texLoader.load(url)).get(url) : null);
+  const load = (url) => (url ? tex.get(url) || tex.set(url, loadTexture(texLoader, url)).get(url) : null);
   model.traverse((o) => {
     if (!o.isMesh) return;
     if (EGG.hidden.includes(o.name)) { o.visible = false; return; }

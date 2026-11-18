@@ -896,5 +896,14 @@ function frame(now) {
 }
 
 // ---------- Start ----------
-startSector(SECTORS.entry);
-requestAnimationFrame(loop);
+// The 3D models are big (~120 MB): load them all behind the loading screen, then start
+(async () => {
+  const fill = $("loading-fill"), pct = $("loading-pct");
+  await preloadModels((p) => {
+    fill.style.width = `${(p * 100).toFixed(1)}%`;
+    pct.textContent = `${Math.floor(p * 100)}%`;
+  });
+  $("loading").hidden = true;
+  startSector(SECTORS.entry);
+  requestAnimationFrame(loop);
+})();
